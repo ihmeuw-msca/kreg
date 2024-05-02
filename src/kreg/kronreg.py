@@ -1,11 +1,13 @@
 from functools import partial, reduce
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import config
 from jax.scipy.sparse.linalg import cg
-from pykronecker import KroneckerDiag, KroneckerProduct
+from numpy.typing import ArrayLike
+from pykronecker import KroneckerDiag, KroneckerOperator, KroneckerProduct
 from tqdm.auto import tqdm
 
 # Get newton decrement convergence criteria
@@ -15,11 +17,47 @@ from tqdm.auto import tqdm
 config.update("jax_enable_x64", True)
 
 
-def outer_fold(x, y):
+def outer_fold(x: ArrayLike, y: ArrayLike) -> jax.Array:
+    """Compute the outer product of two arrays.
+
+    Parameters
+    ----------
+    x
+        First array.
+    y
+        Second array.
+
+    Returns
+    -------
+    jax.Array
+        Outer product of the two arrays.
+
+    """
     return jnp.array(np.multiply.outer(np.array(x), np.array(y)))
 
 
-def randomized_nystrom(vmapped_A, input_shape, rank, key):
+def randomized_nystrom(
+    vmapped_A: Callable, input_shape: int, rank: int, key: int
+):
+    """Create a randomized Nystrom approximation of a matrix.
+
+    Parameters
+    ----------
+    vmapped_A
+        Function that computes the matrix-vector product of the matrix to be approximated.
+    input_shape
+        Number of rows of the matrix.
+    rank
+        Rank of the approximation.
+    key
+        Random key.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        Approximation matrices U and E.
+
+    """
     X = jax.random.normal(key, (input_shape, rank))
     Q = jnp.linalg.qr(X).Q
     AQ = vmapped_A(Q)
@@ -31,7 +69,25 @@ def randomized_nystrom(vmapped_A, input_shape, rank, key):
     return U, E
 
 
-def build_ny_precon(U, E, lam):
+def build_ny_precon(U: jax.Array, E: jax.Array, lam: float) -> Callable:
+    """Build a preconditioner for the randomized Nystrom approximation.
+
+    Parameters
+    ----------
+    U
+        Matrix U from the randomized Nystrom approximation.
+    E
+        Matrix E from the randomized Nystrom approximation.
+    lam
+        Regularization parameter.
+
+    Returns
+    -------
+    Callable
+        Preconditioner.
+
+    """
+
     def precon(x):
         inner_diag = 1 / (E + lam) - (1 / lam)
         return (1 / lam) * x + U @ (inner_diag * (U.T @ x))
@@ -40,7 +96,26 @@ def build_ny_precon(U, E, lam):
 
 
 class KroneckerKernel:
-    def __init__(self, kernels, value_grids, nugget=5e-8) -> None:
+    """Kronecker product of all kernel functions to form a complete kernel
+    linear mapping.
+
+    Parameters
+    ----------
+    kernels
+        List of kernel functions.
+    value_grids
+        List of value grids, unique values for each dimension.
+    nugget
+        Regularization for the kernel matrix.
+
+    """
+
+    def __init__(
+        self,
+        kernels: list[Callable],
+        value_grids: list[jax.Array],
+        nugget: float = 5e-8,
+    ) -> None:
         """
         TODO: Abstract this to lists of kernels and grids, kronecker out sex, age and time
         """
@@ -71,7 +146,9 @@ class KroneckerKernel:
             @ self.right
         )
 
-    def get_preconditioners(self, lam, beta):
+    def get_preconditioners(
+        self, lam: float, beta: float
+    ) -> tuple[KroneckerOperator, KroneckerOperator]:
         PC = (
             self.left
             @ KroneckerDiag(
@@ -88,7 +165,7 @@ class KroneckerKernel:
         )
         return PC, PC_inv
 
-    def get_M(self, lam, beta):
+    def get_M(self, lam: float, beta: float) -> KroneckerOperator:
         middle = self.kronvals / (lam + beta * self.kronvals)
         return self.left @ KroneckerDiag(middle) @ self.right
 
@@ -96,19 +173,19 @@ class KroneckerKernel:
 class LogisticLikelihood:
     def __init__(
         self,
-        obs_counts,
-        sample_sizes,
+        obs_counts: jax.Array,
+        sample_sizes: jax.Array,
     ) -> None:
         self.sample_sizes = sample_sizes
         self.obs_counts = obs_counts
         self.beta_smoothness = jnp.max(sample_sizes) / 4
         self.N = len(obs_counts)
 
-    def loss_single(y, k, n):
+    def loss_single(y: jax.Array, k: jax.Array, n: jax.Array) -> jax.Array:
         return n * jnp.log(1 + jnp.exp(-y)) + (n - k) * y
 
     @partial(jax.jit, static_argnums=0)
-    def f(self, y):
+    def f(self, y: jax.Array) -> jax.Array:
         return jnp.sum(
             LogisticLikelihood.loss_single(
                 y, self.obs_counts, self.sample_sizes
@@ -119,7 +196,7 @@ class LogisticLikelihood:
     val_grad_f = jax.jit(jax.value_and_grad(f, argnums=1), static_argnums=0)
 
     @partial(jax.jit, static_argnums=0)
-    def H_diag(self, y):
+    def H_diag(self, y: jax.Array) -> jax.Array:
         z = jnp.exp(y)
         return self.sample_sizes * (z / ((z + 1) ** 2))
 
@@ -127,10 +204,10 @@ class LogisticLikelihood:
 class KernelRegModel:
     def __init__(
         self,
-        kernel,
-        likelihood,
-        lam,
-        offset,
+        kernel: KroneckerKernel,
+        likelihood: LogisticLikelihood,
+        lam: float,
+        offset: jax.Array,
     ) -> None:
         self.kernel = kernel
         self.likelihood = likelihood
@@ -138,11 +215,11 @@ class KernelRegModel:
         self.offset = offset
 
     @partial(jax.jit, static_argnums=0)
-    def reg_term(self, y):
+    def reg_term(self, y: jax.Array) -> jax.Array:
         return self.lam * y.T @ self.kernel.P @ y / 2
 
     @partial(jax.jit, static_argnums=0)
-    def full_loss(self, y):
+    def full_loss(self, y: jax.Array) -> jax.Array:
         return self.likelihood.f(y + self.offset) + self.reg_term(y)
 
     grad_loss = jax.jit(jax.grad(full_loss, argnums=1), static_argnums=0)
@@ -150,10 +227,10 @@ class KernelRegModel:
         jax.value_and_grad(full_loss, argnums=1), static_argnums=0
     )
 
-    def D(self, y):
+    def D(self, y: jax.Array) -> jax.Array:
         return self.likelihood.H_diag(y + self.offset)
 
-    def H(self, y):
+    def H(self, y: jax.Array) -> Callable:
         Hd = self.D(y)
         P_part = self.lam * self.kernel.P
 
@@ -162,7 +239,9 @@ class KernelRegModel:
 
         return H_apply
 
-    def get_nystrom_preconditioner(self, D, key, rank=50):
+    def get_nystrom_preconditioner(
+        self, D: jax.Array, key: int, rank: int = 50
+    ) -> Callable:
         rootK = self.kernel.rootK
         root_KDK = jax.vmap(
             lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
@@ -178,13 +257,13 @@ class KernelRegModel:
 
     def optimize(
         self,
-        y0=None,
-        max_newton_cg=25,
-        grad_tol=1e-3,
-        max_cg_iter=100,
-        scaling_cg_iter=25,
-        nystrom_rank=25,
-    ):
+        y0: jax.Array | None = None,
+        max_newton_cg: int = 25,
+        grad_tol: float = 1e-3,
+        max_cg_iter: int = 100,
+        scaling_cg_iter: int = 25,
+        nystrom_rank: int = 25,
+    ) -> tuple[jax.Array, dict]:
         """ """
         rng_key = jax.random.PRNGKey(101)
         rng_key, *split_keys = jax.random.split(rng_key, 2 * max_newton_cg)
