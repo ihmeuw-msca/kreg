@@ -17,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Natural Language :: English",
 ]
-dependencies = ["jax", "pykronecker[jax]", "tqdm"]
+dependencies = ["jax", "pykronecker[jax]", "tqdm","matplotlib"]
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]

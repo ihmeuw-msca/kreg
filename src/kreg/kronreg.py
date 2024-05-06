@@ -102,22 +102,20 @@ class KroneckerKernel:
         """
         TODO: Abstract this to lists of kernels and grids, kronecker out sex, age and time
         """
-        self.kmats = [k(x, x) for k, x in zip(kernels, value_grids)]
-        if len(self.kmats) == 1:
-            nugget_vals = jnp.ones([len(m) for m in self.kmats]).reshape(-1, 1)
+        self.kmats = [k(x,x) for k,x in zip(kernels,value_grids)]
+        if len(self.kmats)==1:
+            nugget_vals = jnp.ones([len(m) for m in self.kmats]).reshape(-1,1)
         else:
             nugget_vals = jnp.ones([len(m) for m in self.kmats])
 
-        self.K = KroneckerProduct(self.kmats) + nugget * KroneckerDiag(
-            nugget_vals
-        )
-        eigvals, eigvecs = zip(*[jnp.linalg.eigh(Ki) for Ki in self.kmats])
+        self.K = KroneckerProduct(self.kmats)+ nugget * KroneckerDiag(nugget_vals)
+        eigvals,eigvecs = zip(*[jnp.linalg.eigh(Ki) for Ki in self.kmats])
         self.left = KroneckerProduct(eigvecs)
         self.right = self.left.T
-        self.kronvals = reduce(outer_fold, eigvals) + nugget
-        self.P = self.left @ (KroneckerDiag(1 / self.kronvals)) @ self.right
+        self.kronvals = reduce(outer_fold,eigvals) + nugget
+        self.P = self.left@(KroneckerDiag(1/self.kronvals))@self.right
 
-        self.left_etimes_left = KroneckerProduct([e * e for e in eigvecs])
+        self.left_etimes_left = KroneckerProduct([e*e for e in eigvecs])
         self.shapes = [len(grid) for grid in value_grids]
 
         self.rootK = (
@@ -216,10 +214,8 @@ class KernelRegModel():
     def H(self, y: jax.Array) -> Callable:
         Hd = self.D(y)
         P_part = self.lam * self.kernel.P
-
         def H_apply(x):
-            return Hd * x + P_part @ x
-
+            return Hd*x + P_part@x
         return H_apply
 
     def compute_nystroem(
@@ -274,8 +270,9 @@ class KernelRegModel():
         """
         """
         rng_key = jax.random.PRNGKey(101)
-        rng_key, *split_keys = jax.random.split(rng_key, 2 * max_newton_cg)
+        rng_key,*split_keys = jax.random.split(rng_key,2*max_newton_cg)
 
+        
         if y0 is None:
             y0 = jnp.zeros(len(self.kernel.K))
 
@@ -288,10 +285,10 @@ class KernelRegModel():
         converged = False
         M = lambda x:self.kernel.K@x
         for i in tqdm(range(max_newton_cg)):
-            val, g = self.val_grad_loss(y)
+            val,g = self.val_grad_loss(y)
 
-            # Check for convergence
-            if jnp.linalg.vector_norm(g) <= grad_tol:
+            #Check for convergence
+            if (jnp.linalg.vector_norm(g)<=grad_tol):
                 converged = True
                 conv_crit = "grad_norm"
                 break
@@ -354,24 +351,24 @@ def run_solver(solver,x0):
     """
     state = solver.init_state(x0)
     sol = x0
-    values, errors, stepsizes = [state.value], [state.error], [state.stepsize]
-    update = solver.update
+    values,errors,stepsizes = [state.value],[state.error],[state.stepsize]
+    update = lambda sol,state:solver.update(sol,state)
     jitted_update = jax.jit(update)
     for _ in tqdm(range(solver.maxiter)):
-        sol, state = jitted_update(sol, state)
+        sol,state = jitted_update(sol,state)
         values.append(state.value)
         errors.append(state.error)
         stepsizes.append(state.stepsize)
         if solver.verbose > 0:
-            print("Gradient Norm: ", state.error)
-            print("Loss Value: ", state.value)
-        if state.error <= solver.tol:
+            print("Gradient Norm: ",state.error)
+            print("Loss Value: ",state.value)
+        if state.error<=solver.tol:
             break
-        if stepsizes[-1] == 0:
+        if stepsizes[-1]==0:
             state = solver.init_state(sol)
     convergence_data = {
-        "values": np.array(values),
-        "gradnorms": np.array(errors),
-        "stepsizes": np.array(stepsizes),
+        "values":np.array(values),
+        "gradnorms":np.array(errors),
+        "stepsizes":np.array(stepsizes)
     }
-    return sol, convergence_data, state
+    return sol,convergence_data,state
