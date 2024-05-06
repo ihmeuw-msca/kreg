@@ -13,6 +13,11 @@ from functools import reduce
 #Jit the CG iteration
 #Inexact solve, when to quit
 
+def cartesian_prod(x,y):
+    a,b= jnp.meshgrid(y,x)
+    full_X = jnp.vstack([b.flatten(),a.flatten()]).T
+    return full_X
+
 def outer_fold(x,y):
     return jnp.array(np.multiply.outer(np.array(x),np.array(y)))
 
@@ -243,6 +248,7 @@ class KernelRegModel():
         loss_vals=jnp.array(loss_vals)
         grad_norms = jnp.array(grad_norms)
         newton_decrements = jnp.array(newton_decrements)
+        iterate_maxnorm_distances = jnp.array(iterate_maxnorm_distances)
         convergence_data = {
             'loss_vals':loss_vals,
             'gnorms':grad_norms,
