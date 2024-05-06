@@ -188,6 +188,7 @@ class KernelRegModel():
         loss_vals = []
         grad_norms = []
         newton_decrements = []
+        iterate_maxnorm_distances = []
         converged = False
         M = lambda x:self.kernel.K@x
         for i in tqdm(range(max_newton_cg)):
@@ -228,7 +229,8 @@ class KernelRegModel():
                 step_size = 0.2 * step_size
                 new_y = y - step_size * step
                 new_val = self.full_loss(new_y)
-        
+            
+            iterate_maxnorm_distances.append(jnp.max(jnp.abs(step_size * step)))
             y = new_y
         if not converged:
             conv_crit = "Did not converge"
@@ -247,6 +249,7 @@ class KernelRegModel():
             'converged':converged,
             "convergence_criterion":conv_crit,
             "newton_decrements":newton_decrements,
+            "iterate_maxnorm_distances":iterate_maxnorm_distances
         }
         return y,convergence_data
     
