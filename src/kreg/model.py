@@ -29,7 +29,7 @@ class KernelRegModel:
 
     @partial(jax.jit, static_argnums=0)
     def reg_term(self, y: jax.Array) -> jax.Array:
-        return self.lam * y.T @ self.kernel.P @ y / 2
+        return self.lam * y.T @ self.kernel.op_p @ y / 2
 
     @partial(jax.jit, static_argnums=0)
     def full_loss(self, y: jax.Array) -> jax.Array:
@@ -45,7 +45,7 @@ class KernelRegModel:
 
     def H(self, y: jax.Array) -> Callable:
         Hd = self.D(y)
-        P_part = self.lam * self.kernel.P
+        P_part = self.lam * self.kernel.op_p
 
         def H_apply(x):
             return Hd * x + P_part @ x
@@ -55,7 +55,7 @@ class KernelRegModel:
     def compute_nystroem(
         self, D: jax.Array, key: int, rank: int = 50
     ) -> tuple[jax.Array, jax.Array]:
-        rootK = self.kernel.rootK
+        rootK = self.kernel.op_root_k
         root_KDK = jax.vmap(
             lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
         )
@@ -74,7 +74,7 @@ class KernelRegModel:
         ny_PC = build_ny_precon(U, E, self.lam)
 
         def full_PC(x):
-            return self.kernel.rootK @ (ny_PC(self.kernel.rootK @ x))
+            return self.kernel.op_root_k @ (ny_PC(self.kernel.op_root_k @ x))
 
         H = self.H(y)
         step, info = cg(H, g, M=full_PC, maxiter=maxiter, tol=1e-16)
@@ -88,10 +88,7 @@ class KernelRegModel:
         maxiter: int,
     ):
         H = self.H(y)
-
-        def M(x):
-            return self.kernel.K @ x
-
+        M = self.kernel.dot
         step, info = cg(H, g, M=M, maxiter=maxiter, tol=1e-16)
         return step, info
 
@@ -109,7 +106,7 @@ class KernelRegModel:
         rng_key, *split_keys = jax.random.split(rng_key, 2 * max_newton_cg)
 
         if y0 is None:
-            y0 = jnp.zeros(len(self.kernel.K))
+            y0 = jnp.zeros(len(self.kernel))
 
         y = y0.copy()
 
@@ -126,10 +123,6 @@ class KernelRegModel:
                 converged = True
                 conv_crit = "grad_norm"
                 break
-            # elif i>1 and val>=min(loss_vals)-1e-12:
-            #     converged = True
-            #     conv_crit = "loss_val"
-            #     break
 
             loss_vals.append(val)
             grad_norms.append(jnp.linalg.vector_norm(g))
