@@ -1,27 +1,30 @@
-import jax.numpy as jnp
+from functools import partial, reduce
+from typing import Callable
+
 import jax
-jax.config.update("jax_enable_x64", True)
-from pykronecker import KroneckerProduct
-from pykronecker import KroneckerDiag
-from tqdm.auto import tqdm
-from functools import partial
+import jax.numpy as jnp
+import numpy as np
 from jax.scipy.sparse.linalg import cg
 from numpy.typing import ArrayLike
-import numpy as np
-from functools import reduce
+from pykronecker import KroneckerDiag, KroneckerOperator
+from pykronecker.base import KroneckerProduct
+from tqdm.auto import tqdm
 
-#TODO: Inexact solve, when to quit
+# TODO: Inexact solve, when to quit
+jax.config.update("jax_enable_x64", True)
 
-def cartesian_prod(x:jax.Array,y:jax.Array):
+
+def cartesian_prod(x: jax.Array, y: jax.Array):
     """
     Computes Cartesian product of two arrays x,y
     """
-    a,b= jnp.meshgrid(y,x)
-    full_X = jnp.vstack([b.flatten(),a.flatten()]).T
+    a, b = jnp.meshgrid(y, x)
+    full_X = jnp.vstack([b.flatten(), a.flatten()]).T
     return full_X
 
+
 def outer_fold(x: ArrayLike, y: ArrayLike) -> jax.Array:
-    """Compute the outer product of two arrays 
+    """Compute the outer product of two arrays
     in a way that's amenable to functional reduction operations
 
     Parameters
@@ -39,9 +42,10 @@ def outer_fold(x: ArrayLike, y: ArrayLike) -> jax.Array:
     """
     return jnp.array(np.multiply.outer(np.array(x), np.array(y)))
 
+
 def randomized_nystrom(
     vmapped_A: Callable, input_shape: int, rank: int, key: int
-):
+) -> tuple[jax.Array, jax.Array]:
     """Create a randomized Nystrom approximation of a matrix.
 
     Parameters
@@ -71,10 +75,12 @@ def randomized_nystrom(
     E = jnp.maximum(0, S**2 - eps * jnp.ones(rank))
     return U, E
 
-def build_ny_precon(U,E,lam):
+
+def build_ny_precon(U, E, lam):
     def precon(x):
-        inner_diag = 1/(E+lam)- (1/lam)
-        return (1/lam) *x + U@(inner_diag * (U.T@x))
+        inner_diag = 1 / (E + lam) - (1 / lam)
+        return (1 / lam) * x + U @ (inner_diag * (U.T @ x))
+
     return precon
 
 
@@ -102,20 +108,22 @@ class KroneckerKernel:
         """
         TODO: Abstract this to lists of kernels and grids, kronecker out sex, age and time
         """
-        self.kmats = [k(x,x) for k,x in zip(kernels,value_grids)]
-        if len(self.kmats)==1:
-            nugget_vals = jnp.ones([len(m) for m in self.kmats]).reshape(-1,1)
+        self.kmats = [k(x, x) for k, x in zip(kernels, value_grids)]
+        if len(self.kmats) == 1:
+            nugget_vals = jnp.ones([len(m) for m in self.kmats]).reshape(-1, 1)
         else:
             nugget_vals = jnp.ones([len(m) for m in self.kmats])
 
-        self.K = KroneckerProduct(self.kmats)+ nugget * KroneckerDiag(nugget_vals)
-        eigvals,eigvecs = zip(*[jnp.linalg.eigh(Ki) for Ki in self.kmats])
+        self.K = KroneckerProduct(self.kmats) + nugget * KroneckerDiag(
+            nugget_vals
+        )
+        eigvals, eigvecs = zip(*[jnp.linalg.eigh(Ki) for Ki in self.kmats])
         self.left = KroneckerProduct(eigvecs)
         self.right = self.left.T
-        self.kronvals = reduce(outer_fold,eigvals) + nugget
-        self.P = self.left@(KroneckerDiag(1/self.kronvals))@self.right
+        self.kronvals = reduce(outer_fold, eigvals) + nugget
+        self.P = self.left @ (KroneckerDiag(1 / self.kronvals)) @ self.right
 
-        self.left_etimes_left = KroneckerProduct([e*e for e in eigvecs])
+        self.left_etimes_left = KroneckerProduct([e * e for e in eigvecs])
         self.shapes = [len(grid) for grid in value_grids]
 
         self.rootK = (
@@ -145,10 +153,11 @@ class KroneckerKernel:
             @ self.right
         )
         return PC, PC_inv
-    
+
     def get_M(self, lam: float, beta: float) -> KroneckerOperator:
         middle = self.kronvals / (lam + beta * self.kronvals)
         return self.left @ KroneckerDiag(middle) @ self.right
+
 
 class LogisticLikelihood:
     def __init__(
@@ -156,12 +165,11 @@ class LogisticLikelihood:
         obs_counts: jax.Array,
         sample_sizes: jax.Array,
     ) -> None:
-        assert (obs_counts<=sample_sizes).all()
+        assert (obs_counts <= sample_sizes).all()
         self.sample_sizes = sample_sizes
         self.obs_counts = obs_counts
-        self.beta_smoothness = jnp.max(sample_sizes)/4
+        self.beta_smoothness = jnp.max(sample_sizes) / 4
         self.N = len(obs_counts)
-        
 
     def loss_single(y: jax.Array, k: jax.Array, n: jax.Array) -> jax.Array:
         return n * jnp.log(1 + jnp.exp(-y)) + (n - k) * y
@@ -174,27 +182,28 @@ class LogisticLikelihood:
             )
         )
 
-    grad_f = jax.jit(jax.grad(f,argnums=1),static_argnums = 0)
-    val_grad_f = jax.jit(jax.value_and_grad(f,argnums=1),static_argnums = 0)
+    grad_f = jax.jit(jax.grad(f, argnums=1), static_argnums=0)
+    val_grad_f = jax.jit(jax.value_and_grad(f, argnums=1), static_argnums=0)
 
-    @partial(jax.jit,static_argnums = 0)
-    def H_diag(self,y):
+    @partial(jax.jit, static_argnums=0)
+    def H_diag(self, y):
         z = jnp.exp(y)
-        return self.sample_sizes * (z/((z+1)**2))
-    
-class KernelRegModel():
+        return self.sample_sizes * (z / ((z + 1) ** 2))
+
+
+class KernelRegModel:
     def __init__(
-            self,
-            kernel,
-            likelihood,
-            lam,
-            offset,
-            ) -> None:
+        self,
+        kernel,
+        likelihood,
+        lam,
+        offset,
+    ) -> None:
         self.kernel = kernel
         self.likelihood = likelihood
         self.lam = lam
         self.offset = offset
-    
+
     @partial(jax.jit, static_argnums=0)
     def reg_term(self, y: jax.Array) -> jax.Array:
         return self.lam * y.T @ self.kernel.P @ y / 2
@@ -214,50 +223,55 @@ class KernelRegModel():
     def H(self, y: jax.Array) -> Callable:
         Hd = self.D(y)
         P_part = self.lam * self.kernel.P
+
         def H_apply(x):
-            return Hd*x + P_part@x
+            return Hd * x + P_part @ x
+
         return H_apply
 
     def compute_nystroem(
         self, D: jax.Array, key: int, rank: int = 50
-    ) -> Callable:
+    ) -> tuple[jax.Array, jax.Array]:
         rootK = self.kernel.rootK
-        root_KDK =jax.vmap(
-            lambda x:rootK@(D*(rootK@x)),
-            in_axes = 1,
-            out_axes = 1
-            )
+        root_KDK = jax.vmap(
+            lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
+        )
         U, E = randomized_nystrom(root_KDK, self.likelihood.N, rank, key)
-        return U,E
-    
-    @partial(jax.jit,static_argnames = 'self')
+        return U, E
+
+    @partial(jax.jit, static_argnames="self")
     def nys_pc_newton_step(
         self,
-        y:jax.Array,
-        g:jax.Array,
-        U:jax.Array,
-        E:jax.Array,
-        maxiter:int,
-        ):
-        ny_PC = build_ny_precon(U,E,self.lam)
+        y: jax.Array,
+        g: jax.Array,
+        U: jax.Array,
+        E: jax.Array,
+        maxiter: int,
+    ):
+        ny_PC = build_ny_precon(U, E, self.lam)
+
         def full_PC(x):
-            return self.kernel.rootK@(ny_PC(self.kernel.rootK@x))
+            return self.kernel.rootK @ (ny_PC(self.kernel.rootK @ x))
+
         H = self.H(y)
-        step,info = cg(H,g,M = full_PC,maxiter = maxiter, tol = 1e-16)
-        return step,info
-    
-    @partial(jax.jit,static_argnames = 'self')
+        step, info = cg(H, g, M=full_PC, maxiter=maxiter, tol=1e-16)
+        return step, info
+
+    @partial(jax.jit, static_argnames="self")
     def K_pc_newton_step(
         self,
-        y:jax.Array,
-        g:jax.Array,
-        maxiter:int,
-        ):
+        y: jax.Array,
+        g: jax.Array,
+        maxiter: int,
+    ):
         H = self.H(y)
-        M = lambda x:self.kernel.K@x
-        step,info = cg(H,g,M = M,maxiter = maxiter, tol = 1e-16)
-        return step,info
-    
+
+        def M(x):
+            return self.kernel.K @ x
+
+        step, info = cg(H, g, M=M, maxiter=maxiter, tol=1e-16)
+        return step, info
+
     def optimize(
         self,
         y0: jax.Array | None = None,
@@ -265,30 +279,27 @@ class KernelRegModel():
         grad_tol: float = 1e-3,
         max_cg_iter: int = 100,
         scaling_cg_iter: int = 25,
-        nystrom_rank: int = 25,
+        nystroem_rank: int = 25,
     ) -> tuple[jax.Array, dict]:
-        """
-        """
+        """ """
         rng_key = jax.random.PRNGKey(101)
-        rng_key,*split_keys = jax.random.split(rng_key,2*max_newton_cg)
+        rng_key, *split_keys = jax.random.split(rng_key, 2 * max_newton_cg)
 
-        
         if y0 is None:
             y0 = jnp.zeros(len(self.kernel.K))
 
-        y = y0.copy()        
+        y = y0.copy()
 
         loss_vals = []
         grad_norms = []
         newton_decrements = []
         iterate_maxnorm_distances = []
         converged = False
-        M = lambda x:self.kernel.K@x
         for i in tqdm(range(max_newton_cg)):
-            val,g = self.val_grad_loss(y)
+            val, g = self.val_grad_loss(y)
 
-            #Check for convergence
-            if (jnp.linalg.vector_norm(g)<=grad_tol):
+            # Check for convergence
+            if jnp.linalg.vector_norm(g) <= grad_tol:
                 converged = True
                 conv_crit = "grad_norm"
                 break
@@ -300,27 +311,31 @@ class KernelRegModel():
             loss_vals.append(val)
             grad_norms.append(jnp.linalg.vector_norm(g))
 
-            #M = self.kernel.get_M(self.lam,beta)
+            # M = self.kernel.get_M(self.lam,beta)
             num_cg_iter = max_cg_iter + scaling_cg_iter * i
-            if (nystroem_rank>0 and i%10==0):
+            if nystroem_rank > 0 and i % 10 == 0:
                 D = self.D(y)
-                U,E = self.compute_nystroem(D,split_keys[i],rank = nystroem_rank)
-            if nystroem_rank>0:
-                step,info = self.nys_pc_newton_step(y,g,U,E,num_cg_iter)
+                U, E = self.compute_nystroem(
+                    D, split_keys[i], rank=nystroem_rank
+                )
+            if nystroem_rank > 0:
+                step, info = self.nys_pc_newton_step(y, g, U, E, num_cg_iter)
             else:
-                step,info = self.K_pc_newton_step(y,g,maxiter=num_cg_iter)
+                step, info = self.K_pc_newton_step(y, g, maxiter=num_cg_iter)
 
-            newton_decrements.append(jnp.sqrt(jnp.dot(g,step)))
-            #Hard coded line search
-            step_size = 1.
+            newton_decrements.append(jnp.sqrt(jnp.dot(g, step)))
+            # Hard coded line search
+            step_size = 1.0
             alpha = 0.1
-            new_y = y-step_size*step
+            new_y = y - step_size * step
             new_val = self.full_loss(new_y)
-            while new_val-val>=step_size * alpha * jnp.dot(g,step) or jnp.isnan(new_val):
+            while new_val - val >= step_size * alpha * jnp.dot(
+                g, step
+            ) or jnp.isnan(new_val):
                 step_size = 0.2 * step_size
                 new_y = y - step_size * step
                 new_val = self.full_loss(new_y)
-            
+
             iterate_maxnorm_distances.append(jnp.max(jnp.abs(step_size * step)))
             y = new_y
         if not converged:
@@ -331,7 +346,7 @@ class KernelRegModel():
         loss_vals.append(val)
         grad_norms.append(jnp.linalg.vector_norm(g))
 
-        loss_vals=jnp.array(loss_vals)
+        loss_vals = jnp.array(loss_vals)
         grad_norms = jnp.array(grad_norms)
         newton_decrements = jnp.array(newton_decrements)
         iterate_maxnorm_distances = jnp.array(iterate_maxnorm_distances)
@@ -341,34 +356,35 @@ class KernelRegModel():
             "converged": converged,
             "convergence_criterion": conv_crit,
             "newton_decrements": newton_decrements,
-            "iterate_maxnorm_distances": iterate_maxnorm_distances
+            "iterate_maxnorm_distances": iterate_maxnorm_distances,
         }
         return y, convergence_data
 
-def run_solver(solver,x0):
+
+def run_solver(solver, x0):
     """
     Wraps a jaxopt solver to track convergence data
     """
     state = solver.init_state(x0)
     sol = x0
-    values,errors,stepsizes = [state.value],[state.error],[state.stepsize]
-    update = lambda sol,state:solver.update(sol,state)
+    values, errors, stepsizes = [state.value], [state.error], [state.stepsize]
+    update = solver.update
     jitted_update = jax.jit(update)
     for _ in tqdm(range(solver.maxiter)):
-        sol,state = jitted_update(sol,state)
+        sol, state = jitted_update(sol, state)
         values.append(state.value)
         errors.append(state.error)
         stepsizes.append(state.stepsize)
         if solver.verbose > 0:
-            print("Gradient Norm: ",state.error)
-            print("Loss Value: ",state.value)
-        if state.error<=solver.tol:
+            print("Gradient Norm: ", state.error)
+            print("Loss Value: ", state.value)
+        if state.error <= solver.tol:
             break
-        if stepsizes[-1]==0:
+        if stepsizes[-1] == 0:
             state = solver.init_state(sol)
     convergence_data = {
-        "values":np.array(values),
-        "gradnorms":np.array(errors),
-        "stepsizes":np.array(stepsizes)
+        "values": np.array(values),
+        "gradnorms": np.array(errors),
+        "stepsizes": np.array(stepsizes),
     }
-    return sol,convergence_data,state
+    return sol, convergence_data, state
