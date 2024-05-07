@@ -44,10 +44,10 @@ class BinomialLikelihood(Likelihood):
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: jax.Array) -> jax.Array:
-        z = jnp.exp(-(x + self.offset))
-        return self.weights * (1 / (1 + z) - self.obs)
+        z = jnp.exp(x + self.offset)
+        return self.weights * (z / (1 + z) - self.obs)
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: jax.Array) -> jax.Array:
-        z = jnp.exp(-(x + self.offset))
+        z = jnp.exp(x + self.offset)
         return self.weights * (z / ((1 + z) ** 2))

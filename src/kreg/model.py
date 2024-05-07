@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
-from kreg.utils import build_ny_precon, randomized_nystrom
+from kreg.utils import build_ny_precon, randomized_nystroem
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -51,7 +51,7 @@ class KernelRegModel:
         root_KDK = jax.vmap(
             lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
         )
-        U, E = randomized_nystrom(root_KDK, self.likelihood.size, rank, key)
+        U, E = randomized_nystroem(root_KDK, self.likelihood.size, rank, key)
         return U, E
 
     @partial(jax.jit, static_argnames="self")

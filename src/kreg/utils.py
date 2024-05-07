@@ -35,7 +35,7 @@ def outer_fold(x: ArrayLike, y: ArrayLike) -> jax.Array:
     return jnp.array(np.multiply.outer(np.array(x), np.array(y)))
 
 
-def randomized_nystrom(
+def randomized_nystroem(
     vmapped_A: Callable, input_shape: int, rank: int, key: int
 ) -> tuple[jax.Array, jax.Array]:
     """Create a randomized Nystrom approximation of a matrix.
