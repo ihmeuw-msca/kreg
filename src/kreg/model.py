@@ -7,7 +7,7 @@ from jax.scipy.sparse.linalg import cg
 from tqdm.auto import tqdm
 
 from kreg.kernel.kron_kernel import KroneckerKernel
-from kreg.likelihood import LogisticLikelihood
+from kreg.likelihood import Likelihood
 from kreg.utils import build_ny_precon, randomized_nystrom
 
 # TODO: Inexact solve, when to quit
@@ -18,39 +18,31 @@ class KernelRegModel:
     def __init__(
         self,
         kernel: KroneckerKernel,
-        likelihood: LogisticLikelihood,
+        likelihood: Likelihood,
         lam: float,
-        offset: jax.Array,
     ) -> None:
         self.kernel = kernel
         self.likelihood = likelihood
         self.lam = lam
-        self.offset = offset
 
     @partial(jax.jit, static_argnums=0)
-    def reg_term(self, y: jax.Array) -> jax.Array:
-        return self.lam * y.T @ self.kernel.op_p @ y / 2
+    def objective(self, x: jax.Array) -> jax.Array:
+        return (
+            self.likelihood.objective(x)
+            + 0.5 * self.lam * x.T @ self.kernel.op_p @ x
+        )
 
     @partial(jax.jit, static_argnums=0)
-    def full_loss(self, y: jax.Array) -> jax.Array:
-        return self.likelihood.f(y + self.offset) + self.reg_term(y)
+    def gradient(self, x: jax.Array) -> jax.Array:
+        return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
-    grad_loss = jax.jit(jax.grad(full_loss, argnums=1), static_argnums=0)
-    val_grad_loss = jax.jit(
-        jax.value_and_grad(full_loss, argnums=1), static_argnums=0
-    )
+    def hessian(self, x: jax.Array) -> Callable:
+        hess_diag = self.likelihood.hessian_diag(x)
 
-    def D(self, y: jax.Array) -> jax.Array:
-        return self.likelihood.H_diag(y + self.offset)
+        def op_hess(z: jax.Array) -> jax.Array:
+            return hess_diag * z + self.lam * self.kernel.op_p @ z
 
-    def H(self, y: jax.Array) -> Callable:
-        Hd = self.D(y)
-        P_part = self.lam * self.kernel.op_p
-
-        def H_apply(x):
-            return Hd * x + P_part @ x
-
-        return H_apply
+        return op_hess
 
     def compute_nystroem(
         self, D: jax.Array, key: int, rank: int = 50
@@ -59,7 +51,7 @@ class KernelRegModel:
         root_KDK = jax.vmap(
             lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
         )
-        U, E = randomized_nystrom(root_KDK, self.likelihood.N, rank, key)
+        U, E = randomized_nystrom(root_KDK, self.likelihood.size, rank, key)
         return U, E
 
     @partial(jax.jit, static_argnames="self")
@@ -76,7 +68,7 @@ class KernelRegModel:
         def full_PC(x):
             return self.kernel.op_root_k @ (ny_PC(self.kernel.op_root_k @ x))
 
-        H = self.H(y)
+        H = self.hessian(y)
         step, info = cg(H, g, M=full_PC, maxiter=maxiter, tol=1e-16)
         return step, info
 
@@ -87,7 +79,7 @@ class KernelRegModel:
         g: jax.Array,
         maxiter: int,
     ):
-        H = self.H(y)
+        H = self.hessian(y)
         M = self.kernel.dot
         step, info = cg(H, g, M=M, maxiter=maxiter, tol=1e-16)
         return step, info
@@ -116,7 +108,7 @@ class KernelRegModel:
         iterate_maxnorm_distances = []
         converged = False
         for i in tqdm(range(max_newton_cg)):
-            val, g = self.val_grad_loss(y)
+            val, g = self.objective(y), self.gradient(y)
 
             # Check for convergence
             if jnp.linalg.vector_norm(g) <= grad_tol:
@@ -130,7 +122,7 @@ class KernelRegModel:
             # M = self.kernel.get_M(self.lam,beta)
             num_cg_iter = max_cg_iter + scaling_cg_iter * i
             if nystroem_rank > 0 and i % 10 == 0:
-                D = self.D(y)
+                D = self.likelihood.hessian_diag(y)
                 U, E = self.compute_nystroem(
                     D, split_keys[i], rank=nystroem_rank
                 )
@@ -144,13 +136,13 @@ class KernelRegModel:
             step_size = 1.0
             alpha = 0.1
             new_y = y - step_size * step
-            new_val = self.full_loss(new_y)
+            new_val = self.objective(new_y)
             while new_val - val >= step_size * alpha * jnp.dot(
                 g, step
             ) or jnp.isnan(new_val):
                 step_size = 0.2 * step_size
                 new_y = y - step_size * step
-                new_val = self.full_loss(new_y)
+                new_val = self.objective(new_y)
 
             iterate_maxnorm_distances.append(jnp.max(jnp.abs(step_size * step)))
             y = new_y
@@ -158,7 +150,7 @@ class KernelRegModel:
             conv_crit = "Did not converge"
             print(f"Convergence wasn't achieved in {max_newton_cg} iterations")
 
-        val, g = self.val_grad_loss(y)
+        val, g = self.objective(y), self.gradient(y)
         loss_vals.append(val)
         grad_norms.append(jnp.linalg.vector_norm(g))
 
