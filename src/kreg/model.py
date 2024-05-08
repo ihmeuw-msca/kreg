@@ -1,5 +1,4 @@
 from functools import partial
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -8,6 +7,7 @@ from tqdm.auto import tqdm
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
+from kreg.typing import Callable, JAXArray
 from kreg.utils import build_ny_precon, randomized_nystroem
 
 # TODO: Inexact solve, when to quit
@@ -26,27 +26,27 @@ class KernelRegModel:
         self.lam = lam
 
     @partial(jax.jit, static_argnums=0)
-    def objective(self, x: jax.Array) -> jax.Array:
+    def objective(self, x: JAXArray) -> JAXArray:
         return (
             self.likelihood.objective(x)
             + 0.5 * self.lam * x.T @ self.kernel.op_p @ x
         )
 
     @partial(jax.jit, static_argnums=0)
-    def gradient(self, x: jax.Array) -> jax.Array:
+    def gradient(self, x: JAXArray) -> JAXArray:
         return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
-    def hessian(self, x: jax.Array) -> Callable:
+    def hessian(self, x: JAXArray) -> Callable:
         hess_diag = self.likelihood.hessian_diag(x)
 
-        def op_hess(z: jax.Array) -> jax.Array:
+        def op_hess(z: JAXArray) -> JAXArray:
             return hess_diag * z + self.lam * self.kernel.op_p @ z
 
         return op_hess
 
     def compute_nystroem(
-        self, D: jax.Array, key: int, rank: int = 50
-    ) -> tuple[jax.Array, jax.Array]:
+        self, D: JAXArray, key: int, rank: int = 50
+    ) -> tuple[JAXArray, JAXArray]:
         rootK = self.kernel.op_root_k
         root_KDK = jax.vmap(
             lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
@@ -57,10 +57,10 @@ class KernelRegModel:
     @partial(jax.jit, static_argnames="self")
     def nys_pc_newton_step(
         self,
-        y: jax.Array,
-        g: jax.Array,
-        U: jax.Array,
-        E: jax.Array,
+        y: JAXArray,
+        g: JAXArray,
+        U: JAXArray,
+        E: JAXArray,
         maxiter: int,
     ):
         ny_PC = build_ny_precon(U, E, self.lam)
@@ -75,8 +75,8 @@ class KernelRegModel:
     @partial(jax.jit, static_argnames="self")
     def K_pc_newton_step(
         self,
-        y: jax.Array,
-        g: jax.Array,
+        y: JAXArray,
+        g: JAXArray,
         maxiter: int,
     ):
         H = self.hessian(y)
@@ -86,13 +86,13 @@ class KernelRegModel:
 
     def optimize(
         self,
-        y0: jax.Array | None = None,
+        y0: JAXArray | None = None,
         max_newton_cg: int = 25,
         grad_tol: float = 1e-3,
         max_cg_iter: int = 100,
         scaling_cg_iter: int = 25,
         nystroem_rank: int = 25,
-    ) -> tuple[jax.Array, dict]:
+    ) -> tuple[JAXArray, dict]:
         """ """
         rng_key = jax.random.PRNGKey(101)
         rng_key, *split_keys = jax.random.split(rng_key, 2 * max_newton_cg)

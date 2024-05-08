@@ -1,10 +1,9 @@
 import functools
-from typing import Callable
 
-import jax
 import jax.numpy as jnp
 from pykronecker import KroneckerDiag, KroneckerIdentity, KroneckerProduct
 
+from kreg.typing import Callable, JAXArray
 from kreg.utils import outer_fold
 
 
@@ -26,7 +25,7 @@ class KroneckerKernel:
     def __init__(
         self,
         kernels: list[Callable],
-        grids: list[jax.Array],
+        grids: list[JAXArray],
         nugget: float = 5e-8,
     ) -> None:
         self.shape = tuple(map(len, grids))
@@ -49,10 +48,10 @@ class KroneckerKernel:
             @ self.evecs.T
         )
 
-    def dot(self, x: jax.Array) -> jax.Array:
+    def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
 
-    def __matmul__(self, x: jax.Array) -> jax.Array:
+    def __matmul__(self, x: JAXArray) -> JAXArray:
         return self.dot(x)
 
     def __len__(self) -> int:
