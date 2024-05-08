@@ -2,8 +2,6 @@ from typing import Callable
 
 import jax
 import jax.numpy as jnp
-import numpy as np
-from numpy.typing import ArrayLike
 
 
 def cartesian_prod(x: jax.Array, y: jax.Array):
@@ -13,26 +11,6 @@ def cartesian_prod(x: jax.Array, y: jax.Array):
     a, b = jnp.meshgrid(y, x)
     full_X = jnp.vstack([b.flatten(), a.flatten()]).T
     return full_X
-
-
-def outer_fold(x: ArrayLike, y: ArrayLike) -> jax.Array:
-    """Compute the outer product of two arrays
-    in a way that's amenable to functional reduction operations
-
-    Parameters
-    ----------
-    x
-        First array.
-    y
-        Second array.
-
-    Returns
-    -------
-    jax.Array
-        Outer product of the two arrays.
-
-    """
-    return jnp.array(np.multiply.outer(np.array(x), np.array(y)))
 
 
 def randomized_nystroem(

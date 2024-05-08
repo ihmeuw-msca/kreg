@@ -1,10 +1,7 @@
-import functools
-
 import jax.numpy as jnp
-from pykronecker import KroneckerDiag, KroneckerIdentity, KroneckerProduct
+from pykronecker import KroneckerProduct
 
 from kreg.typing import Callable, JAXArray
-from kreg.utils import outer_fold
 
 
 class KroneckerKernel:
@@ -29,23 +26,22 @@ class KroneckerKernel:
         nugget: float = 5e-8,
     ) -> None:
         self.shape = tuple(map(len, grids))
-        self.kmats = [k(x, x) for k, x in zip(kernels, grids)]
-        self.op_k = KroneckerProduct(self.kmats) + nugget * KroneckerIdentity(
-            tensor_shape=self.shape
-        )
+        self.kmats = [
+            k(x, x) + nugget * jnp.identity(len(x))
+            for k, x in zip(kernels, grids)
+        ]
+        self.op_k = KroneckerProduct(self.kmats)
 
-        evals, evecs = zip(*map(jnp.linalg.eigh, self.kmats))
-        self.evecs = KroneckerProduct(evecs)
-        self.evals = functools.reduce(outer_fold, evals) + nugget
+        self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
 
-        self.op_p = self.evecs @ (KroneckerDiag(1 / self.evals)) @ self.evecs.T
-        self.op_root_k = (
-            self.evecs @ (KroneckerDiag(jnp.sqrt(self.evals))) @ self.evecs.T
+        self.op_p = KroneckerProduct(
+            [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
         )
-        self.op_root_p = (
-            self.evecs
-            @ (KroneckerDiag(1 / jnp.sqrt(self.evals)))
-            @ self.evecs.T
+        self.op_root_k = KroneckerProduct(
+            [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
+        )
+        self.op_root_p = KroneckerProduct(
+            [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
 
     def dot(self, x: JAXArray) -> JAXArray:
