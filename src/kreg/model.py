@@ -44,45 +44,24 @@ class KernelRegModel:
 
         return op_hess
 
-    def compute_nystroem(
-        self, D: JAXArray, key: int, rank: int = 50
-    ) -> tuple[JAXArray, JAXArray]:
-        rootK = self.kernel.op_root_k
-        root_KDK = jax.vmap(
-            lambda x: rootK @ (D * (rootK @ x)), in_axes=1, out_axes=1
+    def get_nystroem_precon(
+        self, hess_diag: JAXArray, key: int, rank: int = 50
+    ) -> Callable:
+        op_sqrt_k = self.kernel.op_root_k
+
+        op_sqrt_kdk = jax.vmap(
+            lambda x: op_sqrt_k @ (hess_diag * (op_sqrt_k @ x)),
+            in_axes=1,
+            out_axes=1,
         )
-        U, E = randomized_nystroem(root_KDK, self.likelihood.size, rank, key)
-        return U, E
+        U, E = randomized_nystroem(op_sqrt_kdk, len(hess_diag), rank, key)
 
-    @partial(jax.jit, static_argnames="self")
-    def nys_pc_newton_step(
-        self,
-        y: JAXArray,
-        g: JAXArray,
-        U: JAXArray,
-        E: JAXArray,
-        maxiter: int,
-    ):
-        ny_PC = build_ny_precon(U, E, self.lam)
+        ny_precon = build_ny_precon(U, E, self.lam)
 
-        def full_PC(x):
-            return self.kernel.op_root_k @ (ny_PC(self.kernel.op_root_k @ x))
+        def full_precon(x: JAXArray) -> JAXArray:
+            return op_sqrt_k @ (ny_precon(op_sqrt_k @ x))
 
-        H = self.hessian(y)
-        step, info = cg(H, g, M=full_PC, maxiter=maxiter, tol=1e-16)
-        return step, info
-
-    @partial(jax.jit, static_argnames="self")
-    def K_pc_newton_step(
-        self,
-        y: JAXArray,
-        g: JAXArray,
-        maxiter: int,
-    ):
-        H = self.hessian(y)
-        M = self.kernel.dot
-        step, info = cg(H, g, M=M, maxiter=maxiter, tol=1e-16)
-        return step, info
+        return full_precon
 
     def optimize(
         self,
@@ -107,8 +86,10 @@ class KernelRegModel:
         newton_decrements = []
         iterate_maxnorm_distances = []
         converged = False
+        # default preconditioner
+        precon = self.kernel.dot
         for i in tqdm(range(max_newton_cg)):
-            val, g = self.objective(y), self.gradient(y)
+            val, g, hess = self.objective(y), self.gradient(y), self.hessian(y)
 
             # Check for convergence
             if jnp.linalg.vector_norm(g) <= grad_tol:
@@ -119,17 +100,16 @@ class KernelRegModel:
             loss_vals.append(val)
             grad_norms.append(jnp.linalg.vector_norm(g))
 
-            # M = self.kernel.get_M(self.lam,beta)
-            num_cg_iter = max_cg_iter + scaling_cg_iter * i
+            # update preconditioner
             if nystroem_rank > 0 and i % 10 == 0:
-                D = self.likelihood.hessian_diag(y)
-                U, E = self.compute_nystroem(
-                    D, split_keys[i], rank=nystroem_rank
+                precon = self.get_nystroem_precon(
+                    self.likelihood.hessian_diag(y),
+                    split_keys[i],
+                    rank=nystroem_rank,
                 )
-            if nystroem_rank > 0:
-                step, info = self.nys_pc_newton_step(y, g, U, E, num_cg_iter)
-            else:
-                step, info = self.K_pc_newton_step(y, g, maxiter=num_cg_iter)
+
+            num_cg_iter = max_cg_iter + scaling_cg_iter * i
+            step, info = cg(hess, g, M=precon, maxiter=num_cg_iter, tol=1e-16)
 
             newton_decrements.append(jnp.sqrt(jnp.dot(g, step)))
             # Hard coded line search
