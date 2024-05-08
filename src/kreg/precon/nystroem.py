@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 
 from kreg.kernel.kron_kernel import KroneckerKernel
+from kreg.likelihood import Likelihood
+from kreg.precon.base import PreconBuilder
 from kreg.typing import Callable, JAXArray
 
 
@@ -38,49 +40,62 @@ def randomized_nystroem(
     return U, E
 
 
-def build_nystroem_precon(
-    hess_diag: JAXArray,
-    kernel: KroneckerKernel,
-    lam: float,
-    key: int,
-    rank: int = 50,
-) -> Callable:
-    """Builds a Nystroem preconditioner for Hessian operator form the
-    likelihood, `hess_diag + lam * kernel.inv`.
+class NystroemPreconBuilder(PreconBuilder):
+    """Nystroem preconditioner builder for the Hessian operator.
 
     Parameters
     ----------
-    hess_diag
-        Diagonal of the Hessian of the likelihood.
+    likelihood
+        Likelihood object.
     kernel
         Kronecker kernel for the prior from the likelihood.
     lam
         Regularization parameter that multiplies the kernel.
-    key
-        Random key.
+    max_iter
+        Maximum number of iterations. This is used for generating a series of
+        keys for randomized_nystroem function.
     rank
-        Rank of the Nystroem approximation.
-
-    Returns
-    -------
-    Callable
-        Function that applies the Nystroem preconditioner.
+        Rank of the approximation. Default is 25.
+    key
+        Random key. Default is 101.
 
     """
-    op_sqrt_k = kernel.op_root_k
 
-    op_sqrt_kdk = jax.vmap(
-        lambda x: op_sqrt_k @ (hess_diag * (op_sqrt_k @ x)),
-        in_axes=1,
-        out_axes=1,
-    )
-    U, E = randomized_nystroem(op_sqrt_kdk, len(hess_diag), rank, key)
+    def __init__(
+        self,
+        likelihood: Likelihood,
+        kernel: KroneckerKernel,
+        lam: float,
+        rank: int = 25,
+        key: int = 101,
+    ) -> None:
+        self.likelihood = likelihood
+        self.kernel = kernel
+        self.lam = lam
+        self.rank = rank
+        self.key = jax.random.PRNGKey(key)
+        self.keys: list[JAXArray] = []
 
-    def precon(x):
-        inner_diag = 1 / (E + lam) - (1 / lam)
-        return (1 / lam) * x + U @ (inner_diag * (U.T @ x))
+    def __call__(self, x: JAXArray) -> Callable:
+        hess_diag = self.likelihood.hessian_diag(x)
+        op_sqrt_k = self.kernel.op_root_k
 
-    def full_precon(x: JAXArray) -> JAXArray:
-        return op_sqrt_k @ (precon(op_sqrt_k @ x))
+        op_sqrt_kdk = jax.vmap(
+            lambda x: op_sqrt_k @ (hess_diag * (op_sqrt_k @ x)),
+            in_axes=1,
+            out_axes=1,
+        )
+        self.key += 1
+        U, E = randomized_nystroem(
+            op_sqrt_kdk, len(hess_diag), self.rank, self.key
+        )
+        self.keys.append(self.key)
 
-    return full_precon
+        def precon(x):
+            inner_diag = 1 / (E + self.lam) - (1 / self.lam)
+            return (1 / self.lam) * x + U @ (inner_diag * (U.T @ x))
+
+        def full_precon(x: JAXArray) -> JAXArray:
+            return op_sqrt_k @ (precon(op_sqrt_k @ x))
+
+        return full_precon
