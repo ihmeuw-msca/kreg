@@ -7,8 +7,8 @@ from tqdm.auto import tqdm
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
+from kreg.precon.nystroem import build_nystroem_precon
 from kreg.typing import Callable, JAXArray
-from kreg.utils import build_ny_precon, randomized_nystroem
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -43,25 +43,6 @@ class KernelRegModel:
             return hess_diag * z + self.lam * self.kernel.op_p @ z
 
         return op_hess
-
-    def get_nystroem_precon(
-        self, hess_diag: JAXArray, key: int, rank: int = 50
-    ) -> Callable:
-        op_sqrt_k = self.kernel.op_root_k
-
-        op_sqrt_kdk = jax.vmap(
-            lambda x: op_sqrt_k @ (hess_diag * (op_sqrt_k @ x)),
-            in_axes=1,
-            out_axes=1,
-        )
-        U, E = randomized_nystroem(op_sqrt_kdk, len(hess_diag), rank, key)
-
-        ny_precon = build_ny_precon(U, E, self.lam)
-
-        def full_precon(x: JAXArray) -> JAXArray:
-            return op_sqrt_k @ (ny_precon(op_sqrt_k @ x))
-
-        return full_precon
 
     def optimize(
         self,
@@ -102,8 +83,10 @@ class KernelRegModel:
 
             # update preconditioner
             if nystroem_rank > 0 and i % 10 == 0:
-                precon = self.get_nystroem_precon(
+                precon = build_nystroem_precon(
                     self.likelihood.hessian_diag(y),
+                    self.kernel,
+                    self.lam,
                     split_keys[i],
                     rank=nystroem_rank,
                 )
