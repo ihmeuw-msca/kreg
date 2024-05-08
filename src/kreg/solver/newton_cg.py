@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from jax.scipy.sparse.linalg import cg
 from tqdm.auto import tqdm
 
+from kreg.solver.line_search import armijo_line_search
 from kreg.typing import Callable, JAXArray
 
 
@@ -53,23 +54,13 @@ class NewtonCG:
                 precon = self.precon_builder(x)
 
             cg_maxiter += cg_maxiter_increment
-            step, info = cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16)
+            p, info = cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16)
 
-            newton_decrements.append(jnp.sqrt(jnp.dot(g, step)))
+            newton_decrements.append(jnp.sqrt(jnp.dot(g, p)))
             # Hard coded line search
-            step_size = 1.0
-            alpha = 0.1
-            new_x = x - step_size * step
-            new_val = self.objective(new_x)
-            while new_val - val >= step_size * alpha * jnp.dot(
-                g, step
-            ) or jnp.isnan(new_val):
-                step_size = 0.2 * step_size
-                new_x = x - step_size * step
-                new_val = self.objective(new_x)
-
-            iterate_maxnorm_distances.append(jnp.max(jnp.abs(step_size * step)))
-            x = new_x
+            step = armijo_line_search(x, p, g, self.objective)
+            iterate_maxnorm_distances.append(jnp.max(jnp.abs(step * p)))
+            x = x - step * p
         if not converged:
             conv_crit = "Did not converge"
             print(f"Convergence wasn't achieved in {max_iter} iterations")
