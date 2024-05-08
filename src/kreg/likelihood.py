@@ -53,3 +53,46 @@ class BinomialLikelihood(Likelihood):
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(x + self.offset)
         return self.weights * (z / ((1 + z) ** 2))
+
+
+class GaussianLikelihood(Likelihood):
+    def __init__(
+        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
+    ) -> None:
+        super().__init__(obs, weights, offset)
+
+    @partial(jax.jit, static_argnums=0)
+    def objective(self, x: JAXArray) -> JAXArray:
+        y = x + self.offset
+        return 0.5 * self.weights.dot((self.obs - y) ** 2)
+
+    @partial(jax.jit, static_argnums=0)
+    def gradient(self, x: JAXArray) -> JAXArray:
+        y = x + self.offset
+        return self.weights * (y - self.obs)
+
+    @partial(jax.jit, static_argnums=0)
+    def hessian_diag(self, x: JAXArray) -> JAXArray:
+        return self.weights
+
+
+class PoissonLikelihood(Likelihood):
+    def __init__(
+        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
+    ) -> None:
+        super().__init__(obs, weights, offset)
+
+    @partial(jax.jit, static_argnums=0)
+    def objective(self, x: JAXArray) -> JAXArray:
+        y = x + self.offset
+        return self.weights.dot(jnp.exp(y) - self.obs * y)
+
+    @partial(jax.jit, static_argnums=0)
+    def gradient(self, x: JAXArray) -> JAXArray:
+        y = x + self.offset
+        return self.weights * (jnp.exp(y) - self.obs)
+
+    @partial(jax.jit, static_argnums=0)
+    def hessian_diag(self, x: JAXArray) -> JAXArray:
+        y = x + self.offset
+        return self.weights * jnp.exp(y)
