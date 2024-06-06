@@ -1,7 +1,8 @@
 import jax.numpy as jnp
 from pykronecker import KroneckerProduct
 
-from kreg.typing import Callable, JAXArray
+from kreg.kernel.component import KernelComponent
+from kreg.typing import DataFrame, JAXArray
 
 
 class KroneckerKernel:
@@ -21,19 +22,39 @@ class KroneckerKernel:
 
     def __init__(
         self,
-        kernels: list[Callable],
-        grids: list[JAXArray],
+        kernel_components: list[KernelComponent],
         nugget: float = 5e-8,
     ) -> None:
-        self.shape = tuple(map(len, grids))
+        self.kernel_components = kernel_components
+        self.nugget = nugget
+        self.kmats: list[JAXArray]
+        self.op_k: KroneckerProduct
+        self.eigdecomps: list[tuple[JAXArray, JAXArray]]
+        self.op_p: KroneckerProduct
+        self.op_root_k: KroneckerProduct
+        self.op_root_p: KroneckerProduct
+
+        self.shape: tuple[int, ...]
+        self.names: list[str] = []
+        for component in self.kernel_components:
+            name = component.name
+            if isinstance(name, str):
+                self.names.append(name)
+            else:
+                self.names.extend(list(name))
+
+    def attach(self, data: DataFrame) -> None:
+        for component in self.kernel_components:
+            component.attach(data)
+
+        self.shape = tuple(map(len, self.kernel_components))
         self.kmats = [
-            k(x, x) + nugget * jnp.identity(len(x))
-            for k, x in zip(kernels, grids)
+            component.build_kmat(self.nugget)
+            for component in self.kernel_components
         ]
+
         self.op_k = KroneckerProduct(self.kmats)
-
         self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
-
         self.op_p = KroneckerProduct(
             [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
         )

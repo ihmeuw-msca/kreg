@@ -3,9 +3,8 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from pandas import DataFrame
 
-from kreg.typing import JAXArray
+from kreg.typing import DataFrame, JAXArray
 
 
 class Likelihood(ABC):

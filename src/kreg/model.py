@@ -7,7 +7,7 @@ from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton_cg import NewtonCG
-from kreg.typing import Callable, JAXArray
+from kreg.typing import Callable, DataFrame, JAXArray
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -45,6 +45,7 @@ class KernelRegModel:
 
     def fit(
         self,
+        data: DataFrame,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -52,6 +53,11 @@ class KernelRegModel:
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 25,
     ) -> tuple[JAXArray, dict]:
+        # attach dataframe
+        self.kernel.attach(data)
+        data = data.sort_values(self.kernel.names, ignore_index=True)
+        self.likelihood.attach(data)
+
         if x0 is None:
             x0 = jnp.zeros(len(self.kernel))
 
@@ -70,7 +76,7 @@ class KernelRegModel:
             precon_builder,
         )
 
-        return solver.solve(
+        result = solver.solve(
             x0,
             max_iter=max_iter,
             gtol=gtol,
@@ -78,3 +84,6 @@ class KernelRegModel:
             cg_maxiter_increment=cg_maxiter_increment,
             precon_build_freq=10,
         )
+
+        self.likelihood.detach()
+        return result
