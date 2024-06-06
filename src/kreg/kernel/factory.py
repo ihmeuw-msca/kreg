@@ -1,12 +1,12 @@
-from typing import Callable
-
 import jax
 import jax.numpy as jnp
+
+from kreg.typing import Callable, KernelFunction
 
 # TODO: Add more math description on each kernel function generator
 
 
-def vectorize_kfunc(k: Callable) -> Callable:
+def vectorize_kfunc(k: Callable) -> KernelFunction:
     """Vectorize kernel function.
 
     Parameters
@@ -23,7 +23,8 @@ def vectorize_kfunc(k: Callable) -> Callable:
     return jax.vmap(jax.vmap(k, in_axes=(None, 0)), in_axes=(0, None))
 
 
-def get_exp_similarity_kernel(exp_a: float) -> Callable:
+@vectorize_kfunc
+def build_exp_similarity_kfunc(exp_a: float) -> KernelFunction:
     """Create exponential similarity kernel function.
 
     Parameters
@@ -45,7 +46,8 @@ def get_exp_similarity_kernel(exp_a: float) -> Callable:
     return k
 
 
-def get_matern_three_half(rho: float) -> Callable:
+@vectorize_kfunc
+def build_matern_three_half_kfunc(rho: float) -> KernelFunction:
     """Create Matern 3/2 kernel function.
 
     Parameters
@@ -67,7 +69,8 @@ def get_matern_three_half(rho: float) -> Callable:
     return k
 
 
-def get_matern_five_half(rho: float) -> Callable:
+@vectorize_kfunc
+def build_matern_five_half_kfunc(rho: float) -> KernelFunction:
     """Create Matern 5/2 kernel function.
 
     Parameters
@@ -91,7 +94,8 @@ def get_matern_five_half(rho: float) -> Callable:
     return k
 
 
-def get_gaussianRBF(gamma: float) -> Callable:
+@vectorize_kfunc
+def build_gaussianRBF_kfunc(gamma: float) -> KernelFunction:
     """Create Gaussian RBF kernel function.
 
     Parameters
@@ -112,7 +116,8 @@ def get_gaussianRBF(gamma: float) -> Callable:
     return k
 
 
-def shifted_scaled_linear_kernel(a: float, b: float) -> Callable:
+@vectorize_kfunc
+def build_shifted_scaled_linear_kfunc(a: float, b: float) -> KernelFunction:
     """Create shifted and scaled linear kernel function.
 
     Parameters
@@ -135,7 +140,8 @@ def shifted_scaled_linear_kernel(a: float, b: float) -> Callable:
     return k
 
 
-def get_RQ_kernel(alpha: float, gamma: float) -> Callable:
+@vectorize_kfunc
+def build_RQ_kfunc(alpha: float, gamma: float) -> KernelFunction:
     """Create Rational Quadratic kernel function.
 
     Parameters

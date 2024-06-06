@@ -4,19 +4,31 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-from kreg.typing import JAXArray
+from kreg.typing import DataFrame, JAXArray
 
 
 class Likelihood(ABC):
-    def __init__(
-        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
-    ) -> None:
-        if not (weights >= 0).all():
-            raise ValueError("Weights must be non-negative.")
+    def __init__(self, obs: str, weights: str, offset: str) -> None:
         self.obs = obs
         self.weights = weights
         self.offset = offset
-        self.size = len(self.obs)
+        self.data: dict[str, JAXArray] = {}
+
+    @property
+    def size(self) -> int | None:
+        if not self.data:
+            return None
+        return len(self.data["obs"])
+
+    def attach(self, data: DataFrame) -> None:
+        if not (data[self.weights] >= 0).all():
+            raise ValueError("Weights must be non-negative.")
+        self.data["obs"] = jnp.asarray(data[self.obs])
+        self.data["weights"] = jnp.asarray(data[self.weights])
+        self.data["offset"] = jnp.asarray(data[self.offset])
+
+    def detach(self) -> None:
+        self.data.clear()
 
     @abstractmethod
     def objective(self, x: JAXArray) -> JAXArray:
@@ -32,27 +44,30 @@ class Likelihood(ABC):
 
 
 class BinomialLikelihood(Likelihood):
-    def __init__(
-        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
-    ) -> None:
-        if not ((obs >= 0).all() and (obs <= 1).all()):
-            raise ValueError("Observations must be in [0, 1].")
+    def __init__(self, obs: str, weights: str, offset: str) -> None:
         super().__init__(obs, weights, offset)
+
+    def attach(self, data: DataFrame) -> None:
+        if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
+            raise ValueError("Observations must be in [0, 1].")
+        return super().attach(data)
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return self.weights.dot(jnp.log(1 + jnp.exp(-y)) + (1 - self.obs) * y)
+        y = x + self.data["offset"]
+        return self.data["weights"].dot(
+            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
+        )
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        z = jnp.exp(x + self.offset)
-        return self.weights * (z / (1 + z) - self.obs)
+        z = jnp.exp(x + self.data["offset"])
+        return self.data["weights"] * (z / (1 + z) - self.data["obs"])
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
-        z = jnp.exp(x + self.offset)
-        return self.weights * (z / ((1 + z) ** 2))
+        z = jnp.exp(x + self.data["offset"])
+        return self.data["weights"] * (z / ((1 + z) ** 2))
 
 
 class GaussianLikelihood(Likelihood):
@@ -63,17 +78,17 @@ class GaussianLikelihood(Likelihood):
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return 0.5 * self.weights.dot((self.obs - y) ** 2)
+        y = x + self.data["offset"]
+        return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return self.weights * (y - self.obs)
+        y = x + self.data["offset"]
+        return self.data["weights"] * (y - self.data["obs"])
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
-        return self.weights
+        return self.data["weights"]
 
 
 class PoissonLikelihood(Likelihood):
@@ -82,17 +97,22 @@ class PoissonLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
+    def attach(self, data: DataFrame) -> None:
+        if not (data[self.obs] >= 0).all():
+            raise ValueError("Observations must be non-negative.")
+        return super().attach(data)
+
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return self.weights.dot(jnp.exp(y) - self.obs * y)
+        y = x + self.data["offset"]
+        return self.data["weights"].dot(jnp.exp(y) - self.data["obs"] * y)
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return self.weights * (jnp.exp(y) - self.obs)
+        y = x + self.data["offset"]
+        return self.data["weights"] * (jnp.exp(y) - self.data["obs"])
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
-        y = x + self.offset
-        return self.weights * jnp.exp(y)
+        y = x + self.data["offset"]
+        return self.data["weights"] * jnp.exp(y)
