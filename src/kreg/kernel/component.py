@@ -19,11 +19,11 @@ class KernelComponent:
     def __init__(self, name: str | list[str], kfunc: KernelFunction) -> None:
         self.name = name
         self.kfunc = kfunc
-        self._grid: JAXArray | None = None
+        self._grid: JAXArray
 
     @property
     def grid(self) -> JAXArray:
-        if self._grid is None:
+        if not hasattr(self, "_grid"):
             raise ValueError(
                 "Kernel component does not have data, please attach dataframe"
                 "first."
@@ -31,7 +31,7 @@ class KernelComponent:
         return self._grid
 
     def attach(self, data: DataFrame) -> None:
-        if self._grid is None:
+        if not hasattr(self, "_grid"):
             self._grid = jnp.asarray(
                 data.sort_values(self.name)[self.name].drop_duplicates()
             )

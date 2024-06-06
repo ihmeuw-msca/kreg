@@ -1,3 +1,5 @@
+import math
+
 import jax.numpy as jnp
 from pykronecker import KroneckerProduct
 
@@ -27,14 +29,7 @@ class KroneckerKernel:
     ) -> None:
         self.kernel_components = kernel_components
         self.nugget = nugget
-        self.kmats: list[JAXArray]
-        self.op_k: KroneckerProduct
-        self.eigdecomps: list[tuple[JAXArray, JAXArray]]
-        self.op_p: KroneckerProduct
-        self.op_root_k: KroneckerProduct
-        self.op_root_p: KroneckerProduct
 
-        self.shape: tuple[int, ...]
         self.names: list[str] = []
         for component in self.kernel_components:
             name = component.name
@@ -43,11 +38,17 @@ class KroneckerKernel:
             else:
                 self.names.extend(list(name))
 
+        self.kmats: list[JAXArray]
+        self.op_k: KroneckerProduct
+        self.eigdecomps: list[tuple[JAXArray, JAXArray]]
+        self.op_p: KroneckerProduct
+        self.op_root_k: KroneckerProduct
+        self.op_root_p: KroneckerProduct
+
     def attach(self, data: DataFrame) -> None:
         for component in self.kernel_components:
             component.attach(data)
 
-        self.shape = tuple(map(len, self.kernel_components))
         self.kmats = [
             component.build_kmat(self.nugget)
             for component in self.kernel_components
@@ -72,4 +73,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return len(self.op_k)
+        return math.prod(map(len, self.kernel_components))
