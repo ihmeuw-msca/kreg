@@ -23,7 +23,6 @@ def vectorize_kfunc(k: Callable) -> KernelFunction:
     return jax.vmap(jax.vmap(k, in_axes=(None, 0)), in_axes=(0, None))
 
 
-@vectorize_kfunc
 def build_exp_similarity_kfunc(exp_a: float) -> KernelFunction:
     """Create exponential similarity kernel function.
 
@@ -46,7 +45,6 @@ def build_exp_similarity_kfunc(exp_a: float) -> KernelFunction:
     return k
 
 
-@vectorize_kfunc
 def build_matern_three_half_kfunc(rho: float) -> KernelFunction:
     """Create Matern 3/2 kernel function.
 
@@ -69,7 +67,6 @@ def build_matern_three_half_kfunc(rho: float) -> KernelFunction:
     return k
 
 
-@vectorize_kfunc
 def build_matern_five_half_kfunc(rho: float) -> KernelFunction:
     """Create Matern 5/2 kernel function.
 
@@ -94,7 +91,6 @@ def build_matern_five_half_kfunc(rho: float) -> KernelFunction:
     return k
 
 
-@vectorize_kfunc
 def build_gaussianRBF_kfunc(gamma: float) -> KernelFunction:
     """Create Gaussian RBF kernel function.
 
@@ -116,7 +112,6 @@ def build_gaussianRBF_kfunc(gamma: float) -> KernelFunction:
     return k
 
 
-@vectorize_kfunc
 def build_shifted_scaled_linear_kfunc(a: float, b: float) -> KernelFunction:
     """Create shifted and scaled linear kernel function.
 
@@ -140,7 +135,6 @@ def build_shifted_scaled_linear_kfunc(a: float, b: float) -> KernelFunction:
     return k
 
 
-@vectorize_kfunc
 def build_RQ_kfunc(alpha: float, gamma: float) -> KernelFunction:
     """Create Rational Quadratic kernel function.
 
