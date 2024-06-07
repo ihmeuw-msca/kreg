@@ -22,11 +22,21 @@ class Likelihood(ABC):
             raise ValueError("No data attached.")
         return len(self.data["obs"])
 
-    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
-        if not (data[self.weights] >= 0).all():
-            raise ValueError("Weights must be non-negative.")
-        self.data["obs"] = jnp.asarray(data[self.obs])
-        self.data["weights"] = jnp.asarray(data[self.weights])
+    @property
+    @abstractmethod
+    def inv_link(self) -> Callable:
+        """Inverse link function to translate parameter from linear space to
+        prediction space.
+        """
+
+    def attach(
+        self, data: DataFrame, kernel: KroneckerKernel, train: bool = True
+    ) -> None:
+        if train:
+            if not (data[self.weights] >= 0).all():
+                raise ValueError("Weights must be non-negative.")
+            self.data["obs"] = jnp.asarray(data[self.obs])
+            self.data["weights"] = jnp.asarray(data[self.weights])
         self.data["offset"] = jnp.asarray(data[self.offset])
         self.data["mat"] = self.encode(data, kernel)
 
@@ -51,6 +61,10 @@ class Likelihood(ABC):
     def get_lin_param(self, x: JAXArray) -> JAXArray:
         return self.data["mat"] @ x + self.data["offset"]
 
+    @partial(jax.jit, static_argnums=0)
+    def get_param(self, x: JAXArray) -> JAXArray:
+        return self.inv_link(self.get_lin_param(x))
+
     @abstractmethod
     def objective(self, x: JAXArray) -> JAXArray:
         """Negative log likelihood."""
@@ -61,7 +75,7 @@ class Likelihood(ABC):
 
     @abstractmethod
     def hessian_diag(self, x: JAXArray) -> JAXArray:
-        """Hessian of the negative log likelihood."""
+        """Diagonal component of Hessian of the negative log likelihood."""
 
     def hessian(self, x: JAXArray) -> Callable:
         diag = self.hessian_diag(x)
@@ -76,10 +90,14 @@ class BinomialLikelihood(Likelihood):
     def __init__(self, obs: str, weights: str, offset: str) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
+    def attach(self, data: DataFrame, *args, **kwargs) -> None:
         if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
             raise ValueError("Observations must be in [0, 1].")
-        return super().attach(data, kernel)
+        return super().attach(data, *args, **kwargs)
+
+    @property
+    def inv_link(self) -> Callable:
+        return expit
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
@@ -106,6 +124,10 @@ class GaussianLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
+    @property
+    def inv_link(self) -> Callable:
+        return identity
+
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
@@ -128,10 +150,14 @@ class PoissonLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
+    def attach(self, data: DataFrame, *args, **kwargs) -> None:
         if not (data[self.obs] >= 0).all():
             raise ValueError("Observations must be non-negative.")
-        return super().attach(data, kernel)
+        return super().attach(data, *args, **kwargs)
+
+    @property
+    def inv_link(self) -> Callable:
+        return jnp.exp
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
@@ -148,3 +174,13 @@ class PoissonLikelihood(Likelihood):
         y = self.get_lin_param(x)
         diag = self.data["weights"] * jnp.exp(y)
         return diag
+
+
+@jax.jit
+def expit(x: JAXArray) -> JAXArray:
+    return 1 / (1 + jnp.exp(-x))
+
+
+@jax.jit
+def identity(x: JAXArray) -> JAXArray:
+    return x

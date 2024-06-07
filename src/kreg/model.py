@@ -24,6 +24,9 @@ class KernelRegModel:
         self.likelihood = likelihood
         self.lam = lam
 
+        self.x: JAXArray
+        self.solver_info: dict
+
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         return (
@@ -55,7 +58,6 @@ class KernelRegModel:
         nystroem_rank: int = 25,
     ) -> tuple[JAXArray, dict]:
         # attach dataframe
-        data = data.sort_values(self.kernel.names, ignore_index=True)
         self.kernel.attach(data_span or data)
         self.likelihood.attach(data, self.kernel)
 
@@ -77,7 +79,7 @@ class KernelRegModel:
             precon_builder,
         )
 
-        result = solver.solve(
+        self.x, self.solver_info = solver.solve(
             x0,
             max_iter=max_iter,
             gtol=gtol,
@@ -87,4 +89,10 @@ class KernelRegModel:
         )
 
         self.likelihood.detach()
-        return result
+        return self.x, self.solver_info
+
+    def predict(self, data: DataFrame) -> JAXArray:
+        self.likelihood.attach(data, self.kernel, train=False)
+        pred = self.likelihood.get_param(self.x)
+        self.likelihood.detach()
+        return pred
