@@ -71,18 +71,18 @@ class BinomialLikelihood(Likelihood):
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         return self.data["weights"].dot(
             jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
         )
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        z = jnp.exp(x + self.data["offset"])
+        z = jnp.exp(self.data["mat"] @ x + self.data["offset"])
         return self.data["weights"] * (z / (1 + z) - self.data["obs"])
 
     def hessian(self, x: JAXArray) -> Callable:
-        z = jnp.exp(x + self.data["offset"])
+        z = jnp.exp(self.data["mat"] @ x + self.data["offset"])
         scale = self.data["weights"] * (z / ((1 + z) ** 2))
 
         def op_hess(x: JAXArray) -> JAXArray:
@@ -99,12 +99,12 @@ class GaussianLikelihood(Likelihood):
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         return self.data["weights"] * (y - self.data["obs"])
 
     def hessian(self, x: JAXArray) -> JAXArray:
@@ -129,16 +129,16 @@ class PoissonLikelihood(Likelihood):
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         return self.data["weights"].dot(jnp.exp(y) - self.data["obs"] * y)
 
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         return self.data["weights"] * (jnp.exp(y) - self.data["obs"])
 
     def hessian(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.data["mat"] @ x + self.data["offset"]
         scale = self.data["weights"] * jnp.exp(y)
 
         def op_hess(x: JAXArray) -> JAXArray:
