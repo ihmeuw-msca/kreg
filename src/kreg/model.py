@@ -46,6 +46,7 @@ class KernelRegModel:
     def fit(
         self,
         data: DataFrame,
+        data_span: DataFrame | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -55,7 +56,7 @@ class KernelRegModel:
     ) -> tuple[JAXArray, dict]:
         # attach dataframe
         data = data.sort_values(self.kernel.names, ignore_index=True)
-        self.kernel.attach(data)
+        self.kernel.attach(data_span or data)
         self.likelihood.attach(data, self.kernel)
 
         if x0 is None:
