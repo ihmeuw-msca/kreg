@@ -3,8 +3,10 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+from jax.experimental.sparse import BCOO
 
-from kreg.typing import DataFrame, JAXArray
+from kreg.kernel import KroneckerKernel
+from kreg.typing import Callable, DataFrame, JAXArray
 
 
 class Likelihood(ABC):
@@ -17,18 +19,33 @@ class Likelihood(ABC):
     @property
     def size(self) -> int | None:
         if not self.data:
-            return None
+            raise ValueError("No data attached.")
         return len(self.data["obs"])
 
-    def attach(self, data: DataFrame) -> None:
+    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
         if not (data[self.weights] >= 0).all():
             raise ValueError("Weights must be non-negative.")
         self.data["obs"] = jnp.asarray(data[self.obs])
         self.data["weights"] = jnp.asarray(data[self.weights])
         self.data["offset"] = jnp.asarray(data[self.offset])
+        self.data["mat"] = self.encode(data, kernel)
 
     def detach(self) -> None:
         self.data.clear()
+
+    @staticmethod
+    def encode(data: DataFrame, kernel: KroneckerKernel) -> JAXArray:
+        nrow, ncol = len(data), len(kernel.span)
+        val = jnp.ones(nrow)
+        row = jnp.arange(nrow)
+        col = jnp.asarray(
+            data[kernel.names]
+            .merge(kernel.span.reset_index(), how="left", on=kernel.names)
+            .eval("index")
+        )
+
+        indices = jnp.vstack([row, col]).T
+        return BCOO((val, indices), shape=(nrow, ncol))
 
     @abstractmethod
     def objective(self, x: JAXArray) -> JAXArray:
@@ -39,18 +56,18 @@ class Likelihood(ABC):
         """Gradient of the negative log likelihood."""
 
     @abstractmethod
-    def hessian_diag(self, x: JAXArray) -> JAXArray:
-        """Diagonal of the Hessian of the negative log likelihood."""
+    def hessian(self, x: JAXArray) -> JAXArray:
+        """Hessian of the negative log likelihood."""
 
 
 class BinomialLikelihood(Likelihood):
     def __init__(self, obs: str, weights: str, offset: str) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame) -> None:
+    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
         if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
             raise ValueError("Observations must be in [0, 1].")
-        return super().attach(data)
+        return super().attach(data, kernel)
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
@@ -64,10 +81,14 @@ class BinomialLikelihood(Likelihood):
         z = jnp.exp(x + self.data["offset"])
         return self.data["weights"] * (z / (1 + z) - self.data["obs"])
 
-    @partial(jax.jit, static_argnums=0)
-    def hessian_diag(self, x: JAXArray) -> JAXArray:
+    def hessian(self, x: JAXArray) -> Callable:
         z = jnp.exp(x + self.data["offset"])
-        return self.data["weights"] * (z / ((1 + z) ** 2))
+        scale = self.data["weights"] * (z / ((1 + z) ** 2))
+
+        def op_hess(x: JAXArray) -> JAXArray:
+            return self.data["mat"].T @ (scale * (self.data["mat"] @ x))
+
+        return op_hess
 
 
 class GaussianLikelihood(Likelihood):
@@ -86,9 +107,13 @@ class GaussianLikelihood(Likelihood):
         y = x + self.data["offset"]
         return self.data["weights"] * (y - self.data["obs"])
 
-    @partial(jax.jit, static_argnums=0)
-    def hessian_diag(self, x: JAXArray) -> JAXArray:
-        return self.data["weights"]
+    def hessian(self, x: JAXArray) -> JAXArray:
+        scale = self.data["weights"]
+
+        def op_hess(x: JAXArray) -> JAXArray:
+            return self.data["mat"].T @ (scale * (self.data["mat"] @ x))
+
+        return op_hess
 
 
 class PoissonLikelihood(Likelihood):
@@ -97,10 +122,10 @@ class PoissonLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame) -> None:
+    def attach(self, data: DataFrame, kernel: KroneckerKernel) -> None:
         if not (data[self.obs] >= 0).all():
             raise ValueError("Observations must be non-negative.")
-        return super().attach(data)
+        return super().attach(data, kernel)
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
@@ -112,7 +137,11 @@ class PoissonLikelihood(Likelihood):
         y = x + self.data["offset"]
         return self.data["weights"] * (jnp.exp(y) - self.data["obs"])
 
-    @partial(jax.jit, static_argnums=0)
-    def hessian_diag(self, x: JAXArray) -> JAXArray:
+    def hessian(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
-        return self.data["weights"] * jnp.exp(y)
+        scale = self.data["weights"] * jnp.exp(y)
+
+        def op_hess(x: JAXArray) -> JAXArray:
+            return self.data["mat"].T @ (scale * (self.data["mat"] @ x))
+
+        return op_hess

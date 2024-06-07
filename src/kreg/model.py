@@ -36,10 +36,10 @@ class KernelRegModel:
         return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
     def hessian(self, x: JAXArray) -> Callable:
-        hess_diag = self.likelihood.hessian_diag(x)
+        likli_hess = self.likelihood.hessian(x)
 
         def op_hess(z: JAXArray) -> JAXArray:
-            return hess_diag * z + self.lam * self.kernel.op_p @ z
+            return likli_hess(z) + self.lam * self.kernel.op_p @ z
 
         return op_hess
 
@@ -54,9 +54,9 @@ class KernelRegModel:
         nystroem_rank: int = 25,
     ) -> tuple[JAXArray, dict]:
         # attach dataframe
-        self.kernel.attach(data)
         data = data.sort_values(self.kernel.names, ignore_index=True)
-        self.likelihood.attach(data)
+        self.kernel.attach(data)
+        self.likelihood.attach(data, self.kernel)
 
         if x0 is None:
             x0 = jnp.zeros(len(self.kernel))

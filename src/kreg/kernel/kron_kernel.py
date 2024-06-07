@@ -1,4 +1,5 @@
 import math
+from functools import reduce
 
 import jax.numpy as jnp
 from pykronecker import KroneckerProduct
@@ -44,6 +45,7 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
+        self.span: DataFrame
 
     def attach(self, data: DataFrame) -> None:
         for component in self.kernel_components:
@@ -65,6 +67,8 @@ class KroneckerKernel:
         self.op_root_p = KroneckerProduct(
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
+        span = [component.span for component in self.kernel_components]
+        self.span = reduce(lambda x, y: x.merge(y, how="cross"), span)
 
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
