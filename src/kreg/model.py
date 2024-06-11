@@ -24,6 +24,9 @@ class KernelRegModel:
         self.likelihood = likelihood
         self.lam = lam
 
+        self.x: JAXArray
+        self.solver_info: dict
+
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         return (
@@ -36,16 +39,17 @@ class KernelRegModel:
         return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
     def hessian(self, x: JAXArray) -> Callable:
-        hess_diag = self.likelihood.hessian_diag(x)
+        likli_hess = self.likelihood.hessian(x)
 
         def op_hess(z: JAXArray) -> JAXArray:
-            return hess_diag * z + self.lam * self.kernel.op_p @ z
+            return likli_hess(z) + self.lam * self.kernel.op_p @ z
 
         return op_hess
 
     def fit(
         self,
         data: DataFrame,
+        data_span: DataFrame | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -54,9 +58,8 @@ class KernelRegModel:
         nystroem_rank: int = 25,
     ) -> tuple[JAXArray, dict]:
         # attach dataframe
-        self.kernel.attach(data)
-        data = data.sort_values(self.kernel.names, ignore_index=True)
-        self.likelihood.attach(data)
+        self.kernel.attach(data_span or data)
+        self.likelihood.attach(data, self.kernel)
 
         if x0 is None:
             x0 = jnp.zeros(len(self.kernel))
@@ -76,7 +79,7 @@ class KernelRegModel:
             precon_builder,
         )
 
-        result = solver.solve(
+        self.x, self.solver_info = solver.solve(
             x0,
             max_iter=max_iter,
             gtol=gtol,
@@ -86,4 +89,10 @@ class KernelRegModel:
         )
 
         self.likelihood.detach()
-        return result
+        return self.x, self.solver_info
+
+    def predict(self, data: DataFrame) -> JAXArray:
+        self.likelihood.attach(data, self.kernel, train=False)
+        pred = self.likelihood.get_param(self.x)
+        self.likelihood.detach()
+        return pred
