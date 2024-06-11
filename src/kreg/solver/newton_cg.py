@@ -27,7 +27,7 @@ class NewtonCG:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         precon_build_freq: int = 10,
-        disable_tqdm = False,
+        disable_tqdm=False,
     ) -> tuple[JAXArray, dict]:
         loss_vals = []
         grad_norms = []
@@ -38,7 +38,7 @@ class NewtonCG:
         x = x0.copy()
         precon = None
 
-        for i in tqdm(range(max_iter),disable = disable_tqdm):
+        for i in tqdm(range(max_iter), disable=disable_tqdm):
             val, g, hess = self.objective(x), self.gradient(x), self.hessian(x)
 
             # Check for convergence
