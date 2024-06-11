@@ -94,4 +94,5 @@ class KernelRegModel:
 
         self.likelihood.detach()
         self.fitted_result = result[0]
+        self.prev_convergence_data = result[1]
         return result
