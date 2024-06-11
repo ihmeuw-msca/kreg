@@ -1,5 +1,3 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 
@@ -39,7 +37,7 @@ class KernelRegModel:
 
         def op_hess(z: JAXArray) -> JAXArray:
             return hess_diag * z + self.lam * self.kernel.op_p @ z
-        
+
         return op_hess
 
     def fit(
@@ -51,8 +49,8 @@ class KernelRegModel:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 25,
-        disable_tqdm = False,
-        lam = None
+        disable_tqdm=False,
+        lam=None,
     ) -> tuple[JAXArray, dict]:
         if lam is not None:
             self.lam = lam
@@ -89,7 +87,7 @@ class KernelRegModel:
             cg_maxiter=cg_maxiter,
             cg_maxiter_increment=cg_maxiter_increment,
             precon_build_freq=10,
-            disable_tqdm = disable_tqdm
+            disable_tqdm=disable_tqdm,
         )
 
         self.likelihood.detach()
