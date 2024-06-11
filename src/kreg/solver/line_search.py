@@ -9,7 +9,7 @@ def armijo_line_search(
     g: JAXArray,
     objective: Callable,
     step_init: float = 1.0,
-    alpha: float = 0.1,
+    alpha: float = 0.6,
     shrinkage: float = 0.2,
 ):
     step = step_init

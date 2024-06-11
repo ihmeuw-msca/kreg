@@ -1,5 +1,3 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 
@@ -23,15 +21,14 @@ class KernelRegModel:
         self.kernel = kernel
         self.likelihood = likelihood
         self.lam = lam
+        self.fitted_result = None
 
-    @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         return (
             self.likelihood.objective(x)
             + 0.5 * self.lam * x.T @ self.kernel.op_p @ x
         )
 
-    @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
@@ -52,14 +49,21 @@ class KernelRegModel:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 25,
+        disable_tqdm=False,
+        lam=None,
     ) -> tuple[JAXArray, dict]:
+        if lam is not None:
+            self.lam = lam
         # attach dataframe
         self.kernel.attach(data)
         data = data.sort_values(self.kernel.names, ignore_index=True)
         self.likelihood.attach(data)
 
         if x0 is None:
-            x0 = jnp.zeros(len(self.kernel))
+            if self.fitted_result is not None:
+                x0 = self.fitted_result
+            else:
+                x0 = jnp.zeros(len(self.kernel))
 
         precon_builder: PreconBuilder
         if nystroem_rank > 0:
@@ -70,8 +74,8 @@ class KernelRegModel:
             precon_builder = PlainPreconBuilder(self.kernel)
 
         solver = NewtonCG(
-            self.objective,
-            self.gradient,
+            jax.jit(self.objective),
+            jax.jit(self.gradient),
             self.hessian,
             precon_builder,
         )
@@ -83,7 +87,10 @@ class KernelRegModel:
             cg_maxiter=cg_maxiter,
             cg_maxiter_increment=cg_maxiter_increment,
             precon_build_freq=10,
+            disable_tqdm=disable_tqdm,
         )
 
         self.likelihood.detach()
+        self.fitted_result = result[0]
+        self.prev_convergence_data = result[1]
         return result
