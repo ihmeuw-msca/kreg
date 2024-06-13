@@ -62,7 +62,7 @@ def build_matern_three_half_kfunc(rho: float) -> KernelFunction:
 
     def k(x, y):
         d = jnp.sqrt(jnp.sum((x - y) ** 2))
-        return (1 + jnp.sqrt(3) * d / rho) * jnp.exp(-jnp.sqrt(5) * d / rho)
+        return (1 + jnp.sqrt(3) * d / rho) * jnp.exp(-jnp.sqrt(3) * d / rho)
 
     return k
 
