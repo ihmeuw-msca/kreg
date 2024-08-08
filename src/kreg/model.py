@@ -43,7 +43,7 @@ class KernelRegModel:
 
     def fit(
         self,
-        data: DataFrame,
+        data: DataFrame | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -52,13 +52,15 @@ class KernelRegModel:
         nystroem_rank: int = 25,
         disable_tqdm=False,
         lam=None,
+        detach_likelihood: bool = True,
     ) -> tuple[JAXArray, dict]:
         if lam is not None:
             self.lam = lam
         # attach dataframe
-        self.kernel.attach(data)
-        data = data.sort_values(self.kernel.names, ignore_index=True)
-        self.likelihood.attach(data)
+        if data is not None:
+            self.kernel.attach(data)
+            data = data.sort_values(self.kernel.names, ignore_index=True)
+            self.likelihood.attach(data)
 
         if x0 is None:
             if self.fitted_result is not None:
@@ -91,7 +93,8 @@ class KernelRegModel:
             disable_tqdm=disable_tqdm,
         )
 
-        self.likelihood.detach()
+        if detach_likelihood:
+            self.likelihood.detach()
         self.fitted_result = result[0]
         self.prev_convergence_data = result[1]
         return result
@@ -103,11 +106,15 @@ class KernelRegModel:
         step_size: float = 10.0,
         inlier_pct: float = 0.95,
         solver_options: dict | None = None,
-    ) -> JAXArray:
+    ) -> tuple[JAXArray, JAXArray]:
         if trim_steps < 2:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
             raise ValueError("inlier_pct has to be between 0 and 1.")
+        if solver_options is None:
+            solver_options = {}
+        solver_options["detach_likelihood"] = False
+
         y = self.fit(data, **solver_options)[0]
 
         if inlier_pct < 1.0:
@@ -118,22 +125,29 @@ class KernelRegModel:
                 counter += 1
                 nll_terms = self.likelihood.nll_terms(y)
                 trim_weights = proj_capped_simplex(
-                    self.data["trim_weights"] - step_size * nll_terms,
+                    self.likelihood.data["trim_weights"]
+                    - step_size * nll_terms,
                     num_inliers,
                 )
                 self.likelihood.update_trim_weights(trim_weights)
-                y = self.fit(data, x0=y, **solver_options)[0]
+                solver_options["x0"] = y
+                y = self.fit(**solver_options)[0]
                 success = all(
                     jnp.isclose(self.likelihood.data["trim_weights"], 0.0)
                     | jnp.isclose(self.likelihood.data["trim_weights"], 1.0)
                 )
             if not success:
-                sort_indices = jnp.argsort(self.likelihood.data["trim_weights"])
-                self.likelihood.data["trim_weights"][
-                    sort_indices[-num_inliers:]
-                ] = 1.0
-                self.likelihood.data["trim_weights"][
-                    sort_indices[:-num_inliers]
-                ] = 0.0
+                trim_weights = self.likelihood.data["trim_weights"]
+                sort_indices = jnp.argsort(trim_weights)
+                trim_weights = trim_weights.at[sort_indices[-num_inliers:]].set(
+                    1.0
+                )
+                trim_weights = trim_weights.at[sort_indices[:-num_inliers]].set(
+                    0.0
+                )
+                self.likelihood.data["trim_weights"] = trim_weights
 
-        return y
+        trim_weights = self.likelihood.data["trim_weights"]
+        self.likelihood.detach()
+
+        return y, trim_weights

@@ -65,21 +65,21 @@ class BinomialLikelihood(Likelihood):
             raise ValueError("Observations must be in [0, 1].")
         return super().attach(data)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"] * (
             jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
         )
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"].dot(
             jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
         )
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(x + self.data["offset"])
         return self.data["weights"] * (z / (1 + z) - self.data["obs"])
@@ -96,22 +96,22 @@ class GaussianLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return 0.5 * self.data["weights"] * (self.data["obs"] - y) ** 2
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"] * (y - self.data["obs"])
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         return self.data["weights"]
 
@@ -127,22 +127,22 @@ class PoissonLikelihood(Likelihood):
             raise ValueError("Observations must be non-negative.")
         return super().attach(data)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"] * (jnp.exp(y) - self.data["obs"] * y)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"].dot(jnp.exp(y) - self.data["obs"] * y)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"] * (jnp.exp(y) - self.data["obs"])
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return self.data["weights"] * jnp.exp(y)
