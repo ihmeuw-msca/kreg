@@ -31,6 +31,10 @@ class Likelihood(ABC):
         self.data.clear()
 
     @abstractmethod
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        """Terms of the negative log likelihood."""
+
+    @abstractmethod
     def objective(self, x: JAXArray) -> JAXArray:
         """Negative log likelihood."""
 
@@ -51,6 +55,13 @@ class BinomialLikelihood(Likelihood):
         if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
             raise ValueError("Observations must be in [0, 1].")
         return super().attach(data)
+
+    @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = x + self.data["offset"]
+        return self.data["weights"] * (
+            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
+        )
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
@@ -77,6 +88,11 @@ class GaussianLikelihood(Likelihood):
         super().__init__(obs, weights, offset)
 
     @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = x + self.data["offset"]
+        return 0.5 * self.data["weights"] * (self.data["obs"] - y) ** 2
+
+    @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = x + self.data["offset"]
         return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
@@ -101,6 +117,11 @@ class PoissonLikelihood(Likelihood):
         if not (data[self.obs] >= 0).all():
             raise ValueError("Observations must be non-negative.")
         return super().attach(data)
+
+    @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = x + self.data["offset"]
+        return self.data["weights"] * (jnp.exp(y) - self.data["obs"] * y)
 
     @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
