@@ -13,6 +13,7 @@ class Likelihood(ABC):
         self.weights = weights
         self.offset = offset
         self.data: dict[str, JAXArray] = {}
+        self.trim_weights: JAXArray
 
     @property
     def size(self) -> int | None:
@@ -25,7 +26,15 @@ class Likelihood(ABC):
             raise ValueError("Weights must be non-negative.")
         self.data["obs"] = jnp.asarray(data[self.obs])
         self.data["weights"] = jnp.asarray(data[self.weights])
+        self.data["orig_weights"] = jnp.asarray(data[self.weights])
         self.data["offset"] = jnp.asarray(data[self.offset])
+        self.data["trim_weights"] = jnp.ones(len(data))
+
+    def update_trim_weights(self, w: JAXArray) -> None:
+        self.data["trim_weights"] = jnp.asarray(w)
+        self.data["weights"] = (
+            self.data["orig_weights"] * self.data["trim_weights"]
+        )
 
     def detach(self) -> None:
         self.data.clear()

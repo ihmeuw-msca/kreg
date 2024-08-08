@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from msca.optim.prox import proj_capped_simplex
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
@@ -94,3 +95,45 @@ class KernelRegModel:
         self.fitted_result = result[0]
         self.prev_convergence_data = result[1]
         return result
+
+    def fit_trimming(
+        self,
+        data: DataFrame,
+        trim_steps: int = 10,
+        step_size: float = 10.0,
+        inlier_pct: float = 0.95,
+        solver_options: dict | None = None,
+    ) -> JAXArray:
+        if trim_steps < 2:
+            raise ValueError("At least two trimming steps.")
+        if inlier_pct < 0.0 or inlier_pct > 1.0:
+            raise ValueError("inlier_pct has to be between 0 and 1.")
+        y = self.fit(data, **solver_options)[0]
+
+        if inlier_pct < 1.0:
+            num_inliers = int(inlier_pct * len(data))
+            counter = 0
+            success = False
+            while (counter < trim_steps) and (not success):
+                counter += 1
+                nll_terms = self.likelihood.nll_terms(y)
+                trim_weights = proj_capped_simplex(
+                    self.data["trim_weights"] - step_size * nll_terms,
+                    num_inliers,
+                )
+                self.likelihood.update_trim_weights(trim_weights)
+                y = self.fit(data, x0=y, **solver_options)[0]
+                success = all(
+                    jnp.isclose(self.likelihood.data["trim_weights"], 0.0)
+                    | jnp.isclose(self.likelihood.data["trim_weights"], 1.0)
+                )
+            if not success:
+                sort_indices = jnp.argsort(self.likelihood.data["trim_weights"])
+                self.likelihood.data["trim_weights"][
+                    sort_indices[-num_inliers:]
+                ] = 1.0
+                self.likelihood.data["trim_weights"][
+                    sort_indices[:-num_inliers]
+                ] = 0.0
+
+        return y
