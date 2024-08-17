@@ -66,6 +66,14 @@ class KroneckerKernel:
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
 
+    def detach(self) -> None:
+        del self.kmats
+        del self.op_k
+        del self.eigdecomps
+        del self.op_p
+        del self.op_root_k
+        del self.op_root_p
+
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
 

@@ -16,8 +16,10 @@ def armijo_line_search(
     new_x = x - step * p
     val, new_val = objective(x), objective(new_x)
     while new_val - val >= step * alpha * jnp.dot(g, p) or jnp.isnan(new_val):
-        if step<=1e-15:
-            raise RuntimeError(f"Line Search Failed,new_val = {new_val},prev_val = {val}")
+        if step <= 1e-15:
+            raise RuntimeError(
+                f"Line Search Failed, new_val = {new_val}, prev_val = {val}"
+            )
         step *= shrinkage
         new_x = x - step * p
         new_val = objective(new_x)
