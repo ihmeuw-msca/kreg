@@ -7,7 +7,6 @@ from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton_cg import NewtonCG
 from kreg.typing import Callable, DataFrame, JAXArray
 from functools import reduce
-
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
 

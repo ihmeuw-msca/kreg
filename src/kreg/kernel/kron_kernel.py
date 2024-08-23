@@ -44,7 +44,8 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
-        self.matrices_computed: bool
+        self.matrices_computed: bool = False
+        self.data_attached: bool = False
 
     def build_matrices(self):
         self.kmats = [
@@ -69,22 +70,7 @@ class KroneckerKernel:
         for component in self.kernel_components:
             component.attach(data)
         self.build_matrices()
-        # self.kmats = [
-        #     component.build_kmat(self.nugget)
-        #     for component in self.kernel_components
-        # ]
-
-        # self.op_k = KroneckerProduct(self.kmats)
-        # self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
-        # self.op_p = KroneckerProduct(
-        #     [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
-        # )
-        # self.op_root_k = KroneckerProduct(
-        #     [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
-        # )
-        # self.op_root_p = KroneckerProduct(
-        #     [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
-        # )
+        self.data_attached = True
 
     def clear_matrices(self) -> None:
         del self.kmats
