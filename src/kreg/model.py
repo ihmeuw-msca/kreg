@@ -97,13 +97,21 @@ class KernelRegModel:
         self.prev_convergence_data = result[1]
         return result
 
-    def predict(self,new_data,y_opt):
+    def predict(self,new_data,y):
         if self.kernel.matrices_computed is False:
             self.kernel.build_matrices()
         components = self.kernel.kernel_components
         prediction_inputs = [jnp.array(new_data[kc.name].values) for kc in components]
         
         def _predict_single(*single_input):
-            return jnp.dot(reduce(jnp.kron,[kc.kfunc(jnp.array([x]),kc.grid) for kc,x in zip(components,*single_input)]),self.kernel.op_p@y_opt)
+            return jnp.dot(
+                reduce(
+                    jnp.kron,
+                    [
+                        kc.kfunc(jnp.array([x]),kc.grid) 
+                        for kc,x in zip(components,*single_input)
+                        ]
+                        ),self.kernel.op_p@y
+                        )
         predict_vec = jax.vmap(jax.jit(_predict_single))
         return predict_vec(prediction_inputs)
