@@ -44,16 +44,13 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
+        self.matrices_computed: bool
 
-    def attach(self, data: DataFrame) -> None:
-        for component in self.kernel_components:
-            component.attach(data)
-
+    def build_matrices(self):
         self.kmats = [
             component.build_kmat(self.nugget)
             for component in self.kernel_components
         ]
-
         self.op_k = KroneckerProduct(self.kmats)
         self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
         self.op_p = KroneckerProduct(
@@ -65,14 +62,38 @@ class KroneckerKernel:
         self.op_root_p = KroneckerProduct(
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
+        self.matrices_computed = True
 
-    def detach(self) -> None:
+
+    def attach(self, data: DataFrame) -> None:
+        for component in self.kernel_components:
+            component.attach(data)
+        self.build_matrices()
+        # self.kmats = [
+        #     component.build_kmat(self.nugget)
+        #     for component in self.kernel_components
+        # ]
+
+        # self.op_k = KroneckerProduct(self.kmats)
+        # self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
+        # self.op_p = KroneckerProduct(
+        #     [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
+        # )
+        # self.op_root_k = KroneckerProduct(
+        #     [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
+        # )
+        # self.op_root_p = KroneckerProduct(
+        #     [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
+        # )
+
+    def clear_matrices(self) -> None:
         del self.kmats
         del self.op_k
         del self.eigdecomps
         del self.op_p
         del self.op_root_k
         del self.op_root_p
+        self.matrices_computed = False
 
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
