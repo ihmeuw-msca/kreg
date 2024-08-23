@@ -1,3 +1,5 @@
+from functools import reduce
+
 import jax
 import jax.numpy as jnp
 
@@ -6,7 +8,7 @@ from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton_cg import NewtonCG
 from kreg.typing import Callable, DataFrame, JAXArray
-from functools import reduce
+
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
 
@@ -96,21 +98,25 @@ class KernelRegModel:
         self.prev_convergence_data = result[1]
         return result
 
-    def predict(self,new_data,y):
+    def predict(self, new_data, y):
         if self.kernel.matrices_computed is False:
             self.kernel.build_matrices()
         components = self.kernel.kernel_components
-        prediction_inputs = [jnp.array(new_data[kc.name].values) for kc in components]
-        
+        prediction_inputs = [
+            jnp.array(new_data[kc.name].values) for kc in components
+        ]
+
         def _predict_single(*single_input):
             return jnp.dot(
                 reduce(
                     jnp.kron,
                     [
-                        kc.kfunc(jnp.array([x]),kc.grid) 
-                        for kc,x in zip(components,*single_input)
-                        ]
-                        ),self.kernel.op_p@y
-                        )
+                        kc.kfunc(jnp.array([x]), kc.grid)
+                        for kc, x in zip(components, *single_input)
+                    ],
+                ),
+                self.kernel.op_p @ y,
+            )
+
         predict_vec = jax.vmap(jax.jit(_predict_single))
         return predict_vec(prediction_inputs)
