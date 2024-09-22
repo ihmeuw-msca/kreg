@@ -29,7 +29,6 @@ def armijo_line_search(
                 f"Line Search Failed, new_val = {new_val}, prev_val = {val}"
             )
         step *= shrinkage
-        #p = step * p + (1-step) * g
         new_x = x - step * p
         new_val = objective(new_x)
     armijo_ratio = (val - new_val)/(step * jnp.dot(g, p))
