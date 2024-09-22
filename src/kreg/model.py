@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
-from kreg.solver.newton_cg import NewtonCG
+from kreg.solver.newton_cg import NewtonCG,NewtonDirect
 from kreg.typing import Callable, DataFrame, JAXArray
 
 # TODO: Inexact solve, when to quit
@@ -41,6 +41,12 @@ class KernelRegModel:
             return hess_diag * z + self.lam * self.kernel.op_p @ z
 
         return op_hess
+    
+    def hessian_matrix(self,x: JAXArray) -> JAXArray:
+        return (
+            jnp.diag(self.likelihood.hessian_diag(x))
+            + self.lam * self.kernel.op_p.to_array()
+        )
 
     def fit(
         self,
@@ -53,6 +59,8 @@ class KernelRegModel:
         nystroem_rank: int = 25,
         disable_tqdm=False,
         lam=None,
+        use_direct = False,
+        grad_decrease = 0.5
     ) -> tuple[JAXArray, dict]:
         if lam is not None:
             self.lam = lam
@@ -67,30 +75,44 @@ class KernelRegModel:
             else:
                 x0 = jnp.zeros(len(self.kernel))
 
-        precon_builder: PreconBuilder
-        if nystroem_rank > 0:
-            precon_builder = NystroemPreconBuilder(
-                self.likelihood, self.kernel, self.lam, nystroem_rank
+        if use_direct is True:
+            solver = NewtonDirect(
+                jax.jit(self.objective),
+                jax.jit(self.gradient),
+                self.hessian_matrix
+                )
+            result = solver.solve(
+                x0,
+                max_iter=max_iter,
+                gtol=gtol,
+                disable_tqdm=disable_tqdm,
+                grad_decrease = grad_decrease
             )
+            
         else:
-            precon_builder = PlainPreconBuilder(self.kernel)
-
-        solver = NewtonCG(
-            jax.jit(self.objective),
-            jax.jit(self.gradient),
-            self.hessian,
-            precon_builder,
-        )
-
-        result = solver.solve(
-            x0,
-            max_iter=max_iter,
-            gtol=gtol,
-            cg_maxiter=cg_maxiter,
-            cg_maxiter_increment=cg_maxiter_increment,
-            precon_build_freq=10,
-            disable_tqdm=disable_tqdm,
-        )
+            precon_builder: PreconBuilder
+            if nystroem_rank > 0:
+                precon_builder = NystroemPreconBuilder(
+                    self.likelihood, self.kernel, self.lam, nystroem_rank
+                )
+            else:
+                precon_builder = PlainPreconBuilder(self.kernel)
+            solver = NewtonCG(
+                jax.jit(self.objective),
+                jax.jit(self.gradient),
+                self.hessian,
+                precon_builder,
+            )
+            result = solver.solve(
+                x0,
+                max_iter=max_iter,
+                gtol=gtol,
+                cg_maxiter=cg_maxiter,
+                cg_maxiter_increment=cg_maxiter_increment,
+                precon_build_freq=10,
+                disable_tqdm=disable_tqdm,
+                grad_decrease = grad_decrease
+            )
 
         self.likelihood.detach()
         self.kernel.clear_matrices()
