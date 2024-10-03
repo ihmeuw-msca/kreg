@@ -1,6 +1,6 @@
 import jax.numpy as jnp
-from jax.scipy.sparse.linalg import cg
 from jax.scipy.linalg import solve
+from jax.scipy.sparse.linalg import cg
 from tqdm.auto import tqdm
 
 from kreg.solver.line_search import armijo_line_search
@@ -29,7 +29,7 @@ class NewtonCG:
         cg_maxiter_increment: int = 25,
         precon_build_freq: int = 10,
         disable_tqdm=False,
-        grad_decrease = 0.25
+        grad_decrease=0.25,
     ) -> tuple[JAXArray, dict]:
         loss_vals = []
         grad_norms = []
@@ -61,7 +61,14 @@ class NewtonCG:
 
             newton_decrements.append(jnp.sqrt(jnp.dot(g, p)))
             # Hard coded line search
-            step,armijo_ratio,gradnorm_ratio = armijo_line_search(x, p, g, self.objective,self.gradient,grad_decrease = grad_decrease)
+            step, armijo_ratio, gradnorm_ratio = armijo_line_search(
+                x,
+                p,
+                g,
+                self.objective,
+                self.gradient,
+                grad_decrease=grad_decrease,
+            )
             iterate_maxnorm_distances.append(jnp.max(jnp.abs(step * p)))
             x = x - step * p
         if not converged:
@@ -87,6 +94,7 @@ class NewtonCG:
 
         return x, convergence_data
 
+
 class NewtonDirect:
     def __init__(
         self,
@@ -104,7 +112,7 @@ class NewtonDirect:
         max_iter: int = 25,
         gtol: float = 1e-3,
         disable_tqdm=False,
-        grad_decrease = 0.25
+        grad_decrease=0.25,
     ) -> tuple[JAXArray, dict]:
         loss_vals = []
         grad_norms = []
@@ -116,10 +124,13 @@ class NewtonDirect:
         converged = False
 
         x = x0.copy()
-        precon = None
 
         for i in tqdm(range(max_iter), disable=disable_tqdm):
-            val, g, hess = self.objective(x), self.gradient(x), self.hessian_mat(x)
+            val, g, hess = (
+                self.objective(x),
+                self.gradient(x),
+                self.hessian_mat(x),
+            )
 
             # Check for convergence
             if jnp.linalg.vector_norm(g) <= gtol:
@@ -130,13 +141,18 @@ class NewtonDirect:
             loss_vals.append(val)
             grad_norms.append(jnp.linalg.vector_norm(g))
 
-            p = solve(hess,g,assume_a = 'pos')
+            p = solve(hess, g, assume_a="pos")
 
             newton_decrements.append(jnp.sqrt(jnp.dot(g, p)))
             # Hard coded line search
-            step,armijo_ratio,gradnorm_ratio = armijo_line_search(
-                x, p, g, self.objective,self.gradient,grad_decrease=grad_decrease
-                )
+            step, armijo_ratio, gradnorm_ratio = armijo_line_search(
+                x,
+                p,
+                g,
+                self.objective,
+                self.gradient,
+                grad_decrease=grad_decrease,
+            )
             iterate_maxnorm_distances.append(jnp.max(jnp.abs(step * p)))
             armijo_ratios.append(armijo_ratio)
             gradnorm_ratios.append(gradnorm_ratio)
@@ -164,9 +180,9 @@ class NewtonDirect:
             "convergence_criterion": conv_crit,
             "newton_decrements": newton_decrements,
             "iterate_maxnorm_distances": iterate_maxnorm_distances,
-            "armijo_ratios":armijo_ratios,
-            "gradnorm_ratios":gradnorm_ratios,
-            "stepsizes":stepsizes,
+            "armijo_ratios": armijo_ratios,
+            "gradnorm_ratios": gradnorm_ratios,
+            "stepsizes": stepsizes,
         }
 
         return x, convergence_data
