@@ -125,7 +125,7 @@ class NewtonDirect:
 
         x = x0.copy()
 
-        for i in tqdm(range(max_iter), disable=disable_tqdm):
+        for _ in tqdm(range(max_iter), disable=disable_tqdm):
             val, g, hess = (
                 self.objective(x),
                 self.gradient(x),

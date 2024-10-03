@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
-from kreg.solver.newton_cg import NewtonCG, NewtonDirect
+from kreg.solver.newton import NewtonCG, NewtonDirect
 from kreg.typing import Callable, DataFrame, JAXArray
 
 # TODO: Inexact solve, when to quit
