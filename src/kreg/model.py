@@ -24,6 +24,8 @@ class KernelRegModel:
         self.likelihood = likelihood
         self.lam = lam
         self.fitted_result = None
+        self.x: JAXArray
+        self.solver_info: dict
 
     def objective(self, x: JAXArray) -> JAXArray:
         return (
@@ -35,10 +37,10 @@ class KernelRegModel:
         return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
 
     def hessian(self, x: JAXArray) -> Callable:
-        hess_diag = self.likelihood.hessian_diag(x)
+        likli_hess = self.likelihood.hessian(x)
 
         def op_hess(z: JAXArray) -> JAXArray:
-            return hess_diag * z + self.lam * self.kernel.op_p @ z
+            return likli_hess(z) + self.lam * self.kernel.op_p @ z
 
         return op_hess
 
@@ -51,6 +53,7 @@ class KernelRegModel:
     def fit(
         self,
         data: DataFrame,
+        data_span: DataFrame | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -65,9 +68,8 @@ class KernelRegModel:
         if lam is not None:
             self.lam = lam
         # attach dataframe
-        self.kernel.attach(data)
-        data = data.sort_values(self.kernel.names, ignore_index=True)
-        self.likelihood.attach(data)
+        self.kernel.attach(data_span or data)
+        self.likelihood.attach(data, self.kernel)
 
         if x0 is None:
             if self.fitted_result is not None:
@@ -82,14 +84,13 @@ class KernelRegModel:
                 jax.jit(self.gradient),
                 self.hessian_matrix,
             )
-            result = solver.solve(
+            self.x, self.solver_info = solver.solve(
                 x0,
                 max_iter=max_iter,
                 gtol=gtol,
                 disable_tqdm=disable_tqdm,
                 grad_decrease=grad_decrease,
             )
-
         else:
             precon_builder: PreconBuilder
             if nystroem_rank > 0:
@@ -104,7 +105,7 @@ class KernelRegModel:
                 self.hessian,
                 precon_builder,
             )
-            result = solver.solve(
+            self.x, self.solver_info = solver.solve(
                 x0,
                 max_iter=max_iter,
                 gtol=gtol,
@@ -117,13 +118,13 @@ class KernelRegModel:
 
         self.likelihood.detach()
         self.kernel.clear_matrices()
-        self.fitted_result = result[0]
-        self.prev_convergence_data = result[1]
         return result
+        
 
     def predict(self, new_data, y):
         if self.kernel.matrices_computed is False:
             self.kernel.build_matrices()
+        self.likelihood.attach(data, self.kernel, train=False)
         components = self.kernel.kernel_components
         prediction_inputs = [
             jnp.array(new_data[kc.name].values) for kc in components
