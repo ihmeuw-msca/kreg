@@ -1,11 +1,18 @@
 import math
 from functools import reduce
+from enum import StrEnum
 
 import jax.numpy as jnp
 from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
 from kreg.typing import DataFrame, JAXArray
+
+
+class KronKernelStatus(StrEnum):
+    NOGRID = "no_grid"
+    HASGRID = "has_grid"
+    HASMATRICES = "has_matrices"
 
 
 class KroneckerKernel:
@@ -69,6 +76,51 @@ class KroneckerKernel:
         )
         span = [component.span for component in self.kernel_components]
         self.span = reduce(lambda x, y: x.merge(y, how="cross"), span)
+        self.status: KronKernelStatus = KronKernelStatus.NOGRID
+
+    def build_matrices(self):
+        if self.status == KronKernelStatus.NOGRID:
+            raise ValueError("Please attach data to create grid first")
+        if self.status == KronKernelStatus.HASGRID:
+            self.kmats = [
+                component.build_kmat(self.nugget)
+                for component in self.kernel_components
+            ]
+            self.op_k = KroneckerProduct(self.kmats)
+            self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
+            self.op_p = KroneckerProduct(
+                [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
+            )
+            self.op_root_k = KroneckerProduct(
+                [
+                    (mat * jnp.sqrt(vec)).dot(mat.T)
+                    for vec, mat in self.eigdecomps
+                ]
+            )
+            self.op_root_p = KroneckerProduct(
+                [
+                    (mat / jnp.sqrt(vec)).dot(mat.T)
+                    for vec, mat in self.eigdecomps
+                ]
+            )
+            self.status = KronKernelStatus.HASMATRICES
+
+    def attach(self, data: DataFrame) -> None:
+        if self.status == KronKernelStatus.NOGRID:
+            for component in self.kernel_components:
+                component.attach(data)
+            self.status = KronKernelStatus.HASGRID
+        self.build_matrices()
+
+    def clear_matrices(self) -> None:
+        if self.status == KronKernelStatus.HASMATRICES:
+            del self.kmats
+            del self.op_k
+            del self.eigdecomps
+            del self.op_p
+            del self.op_root_k
+            del self.op_root_p
+            self.status = KronKernelStatus.HASGRID
 
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
