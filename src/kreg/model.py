@@ -118,16 +118,15 @@ class KernelRegModel:
 
         self.likelihood.detach()
         self.kernel.clear_matrices()
-        return result
-        
+        return self.x, self.solver_info
 
-    def predict(self, new_data, y):
+    def predict(self, data, y):
         if self.kernel.matrices_computed is False:
             self.kernel.build_matrices()
         self.likelihood.attach(data, self.kernel, train=False)
         components = self.kernel.kernel_components
         prediction_inputs = [
-            jnp.array(new_data[kc.name].values) for kc in components
+            jnp.array(data[kc.name].values) for kc in components
         ]
 
         def _predict_single(*single_input):
