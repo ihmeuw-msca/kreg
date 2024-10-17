@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from functools import partial
+from functools import partial, reduce
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
@@ -45,15 +46,26 @@ class Likelihood(ABC):
 
     @staticmethod
     def encode(data: DataFrame, kernel: KroneckerKernel) -> JAXArray:
-        nrow, ncol = len(data), len(kernel.span)
-        val = jnp.ones(nrow)
-        row = jnp.arange(nrow)
-        col = jnp.asarray(
-            data[kernel.names]
-            .merge(kernel.span.reset_index(), how="left", on=kernel.names)
-            .eval("index")
+        nrow, ncol = len(data), len(kernel)
+        df = reduce(
+            lambda x, y: x.merge(y, on="row_index", how="outer"),
+            (dimension.build_mat(data) for dimension in kernel.dimensions),
         )
+        dim_sizes = [len(dimension) for dimension in kernel.dimensions]
+        dim_names = [dimension.name for dimension in kernel.dimensions]
+        res_sizes = np.hstack([1, np.cumprod(dim_sizes[::-1][:-1])])[::-1]
 
+        df["col_index"] = 0
+        df["val"] = 1.0
+        for dim_name, res_size in zip(dim_names, res_sizes):
+            df["col_index"] += df[f"{dim_name}_col_index"] * res_size
+            df["val"] *= df[f"{dim_name}_val"]
+
+        row, col, val = (
+            jnp.asarray(df["row_index"]),
+            jnp.asarray(df["col_index"]),
+            jnp.asarray(df["val"]),
+        )
         indices = jnp.vstack([row, col]).T
         return BCOO((val, indices), shape=(nrow, ncol))
 

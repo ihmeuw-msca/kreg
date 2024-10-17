@@ -1,18 +1,13 @@
+import itertools
 import math
-from enum import StrEnum
-from functools import reduce
 
 import jax.numpy as jnp
+import numpy as np
 from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
-from kreg.typing import DataFrame, JAXArray
-
-
-class KronKernelStatus(StrEnum):
-    NOGRID = "no_grid"
-    HASGRID = "has_grid"
-    HASMATRICES = "has_matrices"
+from kreg.kernel.dimension import Dimension
+from kreg.typing import DataFrame, JAXArray, NDArray
 
 
 class KroneckerKernel:
@@ -38,13 +33,20 @@ class KroneckerKernel:
         self.kernel_components = kernel_components
         self.nugget = nugget
 
-        self.names: list[str] = []
+        self.dimensions: list[Dimension] = []
+        self.columns: list[str] = []
         for component in self.kernel_components:
-            name = component.name
-            if isinstance(name, str):
-                self.names.append(name)
+            dimensions = component.dimensions
+            if isinstance(dimensions, Dimension):
+                self.dimensions.append(dimensions)
             else:
-                self.names.extend(list(name))
+                self.dimensions.extend(dimensions)
+        for dimension in self.dimensions:
+            columns = dimension.columns
+            if isinstance(columns, str):
+                self.columns.append(columns)
+            else:
+                self.columns.extend(columns)
 
         self.kmats: list[JAXArray]
         self.op_k: KroneckerProduct
@@ -52,53 +54,48 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
-        self.span: DataFrame
+        self.status = "detached"
 
-    def build_matrices(self):
-        if self.status == KronKernelStatus.NOGRID:
-            raise ValueError("Please attach data to create grid first")
-        if self.status == KronKernelStatus.HASGRID:
-            self.kmats = [
-                component.build_kmat(self.nugget)
-                for component in self.kernel_components
-            ]
-            self.op_k = KroneckerProduct(self.kmats)
-            self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
-            self.op_p = KroneckerProduct(
-                [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
-            )
-            self.op_root_k = KroneckerProduct(
-                [
-                    (mat * jnp.sqrt(vec)).dot(mat.T)
-                    for vec, mat in self.eigdecomps
-                ]
-            )
-            self.op_root_p = KroneckerProduct(
-                [
-                    (mat / jnp.sqrt(vec)).dot(mat.T)
-                    for vec, mat in self.eigdecomps
-                ]
-            )
-            self.status = KronKernelStatus.HASMATRICES
+    @property
+    def span(self) -> NDArray:
+        span = np.asarray(
+            list(itertools.product(*[dim.span for dim in self.dimensions])),
+        )
+        return span
+
+    def _build_matrices(self):
+        self.kmats = [
+            component.build_kmat(self.nugget)
+            for component in self.kernel_components
+        ]
+        self.op_k = KroneckerProduct(self.kmats)
+        self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
+        self.op_p = KroneckerProduct(
+            [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
+        )
+        self.op_root_k = KroneckerProduct(
+            [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
+        )
+        self.op_root_p = KroneckerProduct(
+            [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
+        )
 
     def attach(self, data: DataFrame) -> None:
-        if self.status == KronKernelStatus.NOGRID:
+        if self.status == "detached":
             for component in self.kernel_components:
-                component.attach(data)
-            span = [component.span for component in self.kernel_components]
-            self.span = reduce(lambda x, y: x.merge(y, how="cross"), span)
-            self.status = KronKernelStatus.HASGRID
-        self.build_matrices()
+                component.set_span(data)
+            self._build_matrices()
+            self.status = "attached"
 
     def clear_matrices(self) -> None:
-        if self.status == KronKernelStatus.HASMATRICES:
+        if self.status == "attached":
             del self.kmats
             del self.op_k
             del self.eigdecomps
             del self.op_p
             del self.op_root_k
             del self.op_root_p
-            self.status = KronKernelStatus.HASGRID
+            self.status = "detached"
 
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
@@ -107,4 +104,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return math.prod(map(len, self.kernel_components))
+        return math.prod(len(component) for component in self.kernel_components)
