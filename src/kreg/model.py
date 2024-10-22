@@ -19,26 +19,37 @@ class KernelRegModel:
         kernel: KroneckerKernel,
         likelihood: Likelihood,
         lam: float,
+        lam_ridge: float = 0.0,
     ) -> None:
         self.kernel = kernel
         self.likelihood = likelihood
         self.lam = lam
+        self.lam_ridge = lam_ridge
         self.fitted_result = None
 
     def objective(self, x: JAXArray) -> JAXArray:
         return (
             self.likelihood.objective(x)
             + 0.5 * self.lam * x.T @ self.kernel.op_p @ x
+            + 0.5 * self.lam_ridge * x.T @ x
         )
 
     def gradient(self, x: JAXArray) -> JAXArray:
-        return self.likelihood.gradient(x) + self.lam * self.kernel.op_p @ x
+        return (
+            self.likelihood.gradient(x)
+            + self.lam * self.kernel.op_p @ x
+            + self.lam_ridge * x
+        )
 
     def hessian(self, x: JAXArray) -> Callable:
         hess_diag = self.likelihood.hessian_diag(x)
 
         def op_hess(z: JAXArray) -> JAXArray:
-            return hess_diag * z + self.lam * self.kernel.op_p @ z
+            return (
+                hess_diag * z
+                + self.lam * self.kernel.op_p @ z
+                + self.lam_ridge * z
+            )
 
         return op_hess
 
@@ -46,6 +57,7 @@ class KernelRegModel:
         return (
             jnp.diag(self.likelihood.hessian_diag(x))
             + self.lam * self.kernel.op_p.to_array()
+            + self.lam_ridge * jnp.eye(len(x))
         )
 
     def fit(
