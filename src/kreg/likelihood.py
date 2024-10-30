@@ -7,7 +7,7 @@ import numpy as np
 from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
-from kreg.typing import Callable, DataFrame, JAXArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray
 
 
 class Likelihood(ABC):
@@ -45,7 +45,11 @@ class Likelihood(ABC):
         self.data.clear()
 
     @staticmethod
-    def encode(data: DataFrame, kernel: KroneckerKernel) -> JAXArray:
+    def encode(
+        data: DataFrame,
+        kernel: KroneckerKernel,
+        density: NDArray | None = None,
+    ) -> JAXArray:
         nrow, ncol = len(data), len(kernel)
         df = reduce(
             lambda x, y: x.merge(y, on="row_index", how="outer"),
@@ -60,6 +64,12 @@ class Likelihood(ABC):
         for dim_name, res_size in zip(dim_names, res_sizes):
             df["col_index"] += df[f"{dim_name}_col_index"] * res_size
             df["val"] *= df[f"{dim_name}_val"]
+
+        if density is not None:
+            df["val"] *= density
+
+        val_sum = df.groupby("row_index")["val"].sum()
+        df["val"] /= val_sum
 
         row, col, val = (
             jnp.asarray(df["row_index"]),
