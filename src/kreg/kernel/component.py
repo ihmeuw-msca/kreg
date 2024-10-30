@@ -6,13 +6,12 @@ import numpy as np
 from kreg.kernel.dimension import Dimension
 from kreg.typing import (
     DataFrame,
-    DimensionColumns,
     JAXArray,
     KernelFunction,
     NDArray,
 )
 
-DimensionConfig = str | tuple[str, DimensionColumns | None]
+DimensionConfig = str | tuple[str, tuple[str, str] | None]
 
 
 class KernelComponent:

@@ -1,69 +1,76 @@
-from typing import Literal
+from functools import cached_property
+from typing import Literal, Self
 
 import numpy as np
 from msca.integrate.integration_weights import build_integration_weights
 
-from kreg.typing import DataFrame, DimensionColumns, NDArray
+from kreg.typing import DataFrame, NDArray
 
 
 class Dimension:
     def __init__(
-        self, name: str, columns: DimensionColumns | None = None
+        self, name: str, interval: tuple[str, str] | None = None
     ) -> None:
         self.name = name
-        self.columns = name if columns is None else columns
+        self.interval = interval
+
         self._grid: NDArray
         self._span: NDArray
 
     @property
     def span(self) -> NDArray:
         if not hasattr(self, "_span"):
-            raise AttributeError("Dimension span is not set")
+            raise AttributeError("Please set dimension span first")
         return self._span
 
     @property
     def grid(self) -> NDArray:
         if not hasattr(self, "_grid"):
-            raise AttributeError("Dimension grid is not set")
+            raise AttributeError("Please set dimension span first")
         return self._grid
 
-    @property
-    def size(self) -> int:
-        return len(self.span)
+    @cached_property
+    def columns(self) -> list[str]:
+        return [self.name] if self.interval is None else list(self.interval)
 
     def set_span(
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> None:
-        if not hasattr(self, "_span"):
-            if isinstance(self.columns, str):
-                self._span = np.unique(data[self.columns])
+        if hasattr(self, "_span") and hasattr(self, "_grid"):
+            return None
+
+        data = (
+            data[self.columns]
+            .drop_duplicates()
+            .sort_values(by=self.columns, ignore_index=True)
+        )
+
+        if self.interval is None:
+            self._span = np.unique(data[self.name])
+            self._grid = self._span.copy()
+        else:
+            lb, ub = self.interval
+            grid = np.hstack([data.loc[0, lb], data[ub]])
+            if not np.allclose(data[lb], grid[:-1]):
+                raise ValueError("Range intervals contain gap(s)")
+            self._grid = grid
+            if rule == "midpoint":
+                self._span = np.asarray(data.mean(axis=1))
             else:
-                lb, ub = self.columns
-                data = (
-                    data[[lb, ub]]
-                    .drop_duplicates()
-                    .sort_values(by=[lb, ub], ignore_index=True)
-                )
-                grid = np.hstack([data.loc[0, lb], data[ub]])
-                if not np.allclose(data[lb], grid[:-1]):
-                    raise ValueError("Range intervals contain gap(s)")
-                self._grid = grid
-                if rule == "midpoint":
-                    self._span = np.asarray(data.mean(axis=1))
-                else:
-                    raise ValueError(f"Unknown rule='{rule}'")
+                raise ValueError(f"Unknown rule='{rule}'")
 
     def build_mat(
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> DataFrame:
-        if isinstance(self.columns, str):
+        if self.interval is None:
             row_index = np.arange(len(data), dtype=int)
             col_index = (
-                DataFrame({self.columns: self.span})
-                .reset_index()
-                .merge(data[[self.columns]], on=self.columns, how="left")[
-                    "index"
-                ]
+                data[[self.name]]
+                .merge(
+                    DataFrame({self.name: self.span}).reset_index(),
+                    on=self.name,
+                    how="left",
+                )["index"]
                 .to_numpy()
             )
             val = np.ones(len(data))
@@ -87,8 +94,8 @@ class Dimension:
 
     @classmethod
     def from_config(
-        cls, config: str | tuple[str, DimensionColumns | None]
-    ) -> "Dimension":
+        cls, config: str | tuple[str, tuple[str, str] | None]
+    ) -> Self:
         if isinstance(config, str):
             return cls(config)
         return cls(*config)
