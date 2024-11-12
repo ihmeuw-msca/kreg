@@ -90,7 +90,11 @@ class Likelihood(ABC):
 
         # normalization
         if density is not None:
-            df["val"] *= density
+            if len(density) != shape[1]:
+                raise ValueError(
+                    "Must provide density as the same size with the variables in the kernel."
+                )
+            df["val"] *= density[df["col_index"].to_numpy()]
         df["val"] /= df.groupby("row_index")["val"].transform("sum")
 
         return Likelihood.integral_to_design_mat(df, shape)
