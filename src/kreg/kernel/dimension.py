@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import Literal, Self
 
 import numpy as np
@@ -29,7 +28,7 @@ class Dimension:
             raise AttributeError("Please set dimension span first")
         return self._grid
 
-    @cached_property
+    @property
     def columns(self) -> list[str]:
         return [self.name] if self.interval is None else list(self.interval)
 

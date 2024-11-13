@@ -7,7 +7,7 @@ import numpy as np
 from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
-from kreg.typing import Callable, DataFrame, JAXArray, NDArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
 
 
 class Likelihood(ABC):
@@ -83,17 +83,31 @@ class Likelihood(ABC):
     def encode(
         data: DataFrame,
         kernel: KroneckerKernel,
-        density: NDArray | None = None,
+        density: Series | None = None,
     ) -> JAXArray:
         shape = len(data), len(kernel)
         df = Likelihood.encode_integral(data, kernel)
 
         # normalization
         if density is not None:
-            if len(density) != shape[1]:
-                raise ValueError(
-                    "Must provide density as the same size with the variables in the kernel."
+            if not isinstance(density, Series):
+                raise TypeError(
+                    "density must be a pandas Series with index coincide with "
+                    "the kernel dimensions."
                 )
+            density = density.rename("density").reset_index()
+            kernel_span = kernel.span
+            missing_cols = set(kernel_span.columns) - set(density.columns)
+            if missing_cols:
+                raise ValueError(
+                    f"Please provide {missing_cols} as the density index."
+                )
+            matched_density = kernel_span.merge(density, how="left")
+            if matched_density["density"].isna().any():
+                raise ValueError(
+                    "Missing density value for certain kernel dimension."
+                )
+            density = matched_density["density"].to_numpy()
             df["val"] *= density[df["col_index"].to_numpy()]
         df["val"] /= df.groupby("row_index")["val"].transform("sum")
 

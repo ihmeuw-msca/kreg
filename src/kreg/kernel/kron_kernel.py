@@ -1,5 +1,4 @@
 import itertools
-import math
 
 import jax.numpy as jnp
 import numpy as np
@@ -7,7 +6,7 @@ from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
 from kreg.kernel.dimension import Dimension
-from kreg.typing import DataFrame, JAXArray, NDArray
+from kreg.typing import DataFrame, JAXArray
 
 
 class KroneckerKernel:
@@ -57,9 +56,12 @@ class KroneckerKernel:
         self.status = "detached"
 
     @property
-    def span(self) -> NDArray:
-        span = np.asarray(
-            list(itertools.product(*[dim.span for dim in self.dimensions])),
+    def span(self) -> DataFrame:
+        span = DataFrame(
+            data=np.asarray(
+                list(itertools.product(*[dim.span for dim in self.dimensions])),
+            ),
+            columns=[dim.name for dim in self.dimensions],
         )
         return span
 
@@ -104,4 +106,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return math.prod(len(component) for component in self.kernel_components)
+        return len(self.span)
