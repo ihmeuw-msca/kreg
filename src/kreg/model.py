@@ -7,7 +7,7 @@ from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton import NewtonCG, NewtonDirect
-from kreg.typing import Callable, DataFrame, JAXArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -18,7 +18,7 @@ class KernelRegModel:
         self,
         kernel: KroneckerKernel,
         likelihood: Likelihood,
-        lam: float,
+        lam: float = 1.0,
     ) -> None:
         self.kernel = kernel
         self.likelihood = likelihood
@@ -46,7 +46,7 @@ class KernelRegModel:
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
         return (
-            jnp.diag(self.likelihood.hessian_diag(x))
+            self.likelihood.hessian_matrix(x)
             + self.lam * self.kernel.op_p.to_array()
         )
 
@@ -54,6 +54,7 @@ class KernelRegModel:
         self,
         data: DataFrame,
         data_span: DataFrame | None = None,
+        density: NDArray | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -68,8 +69,8 @@ class KernelRegModel:
         if lam is not None:
             self.lam = lam
         # attach dataframe
-        self.kernel.attach(data_span or data)
-        self.likelihood.attach(data, self.kernel)
+        self.kernel.attach(data if data_span is None else data_span)
+        self.likelihood.attach(data, self.kernel, train=True, density=density)
 
         if x0 is None:
             if self.fitted_result is not None:

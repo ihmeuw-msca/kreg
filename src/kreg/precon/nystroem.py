@@ -87,7 +87,7 @@ class NystroemPreconBuilder(PreconBuilder):
         )
         self.key += 1
         U, E = randomized_nystroem(
-            op_sqrt_kdk, len(self.kernel.span), self.rank, self.key
+            op_sqrt_kdk, len(self.kernel), self.rank, self.key
         )
         self.keys.append(self.key)
 
