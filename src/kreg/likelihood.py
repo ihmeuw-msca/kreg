@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
-from functools import partial
+from functools import partial, reduce
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
-from kreg.typing import Callable, DataFrame, JAXArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
 
 
 class Likelihood(ABC):
@@ -30,7 +31,11 @@ class Likelihood(ABC):
         """
 
     def attach(
-        self, data: DataFrame, kernel: KroneckerKernel, train: bool = True
+        self,
+        data: DataFrame,
+        kernel: KroneckerKernel,
+        train: bool = True,
+        density: NDArray | None = None,
     ) -> None:
         if train:
             if not (data[self.weights] >= 0).all():
@@ -38,24 +43,75 @@ class Likelihood(ABC):
             self.data["obs"] = jnp.asarray(data[self.obs])
             self.data["weights"] = jnp.asarray(data[self.weights])
         self.data["offset"] = jnp.asarray(data[self.offset])
-        self.data["mat"] = self.encode(data, kernel)
+        self.data["mat"] = self.encode(data, kernel, density)
 
     def detach(self) -> None:
         self.data.clear()
 
     @staticmethod
-    def encode(data: DataFrame, kernel: KroneckerKernel) -> JAXArray:
-        nrow, ncol = len(data), len(kernel.span)
-        val = jnp.ones(nrow)
-        row = jnp.arange(nrow)
-        col = jnp.asarray(
-            data[kernel.names]
-            .merge(kernel.span.reset_index(), how="left", on=kernel.names)
-            .eval("index")
+    def encode_integral(data: DataFrame, kernel: KroneckerKernel) -> DataFrame:
+        df = reduce(
+            lambda x, y: x.merge(y, on="row_index", how="outer"),
+            (dimension.build_mat(data) for dimension in kernel.dimensions),
         )
+        dim_sizes = [len(dimension) for dimension in kernel.dimensions]
+        dim_names = [dimension.name for dimension in kernel.dimensions]
+        res_sizes = np.hstack([1, np.cumprod(dim_sizes[::-1][:-1], dtype=int)])[
+            ::-1
+        ]
 
+        df["col_index"] = 0
+        df["val"] = 1.0
+        for dim_name, res_size in zip(dim_names, res_sizes):
+            df["col_index"] += df[f"{dim_name}_col_index"] * res_size
+            df["val"] *= df[f"{dim_name}_val"]
+        return df
+
+    @staticmethod
+    def integral_to_design_mat(
+        integral: DataFrame, shape: tuple[int, int]
+    ) -> BCOO:
+        row, col, val = (
+            jnp.asarray(integral["row_index"]),
+            jnp.asarray(integral["col_index"]),
+            jnp.asarray(integral["val"]),
+        )
         indices = jnp.vstack([row, col]).T
-        return BCOO((val, indices), shape=(nrow, ncol))
+        return BCOO((val, indices), shape=shape)
+
+    @staticmethod
+    def encode(
+        data: DataFrame,
+        kernel: KroneckerKernel,
+        density: Series | None = None,
+    ) -> JAXArray:
+        shape = len(data), len(kernel)
+        df = Likelihood.encode_integral(data, kernel)
+
+        # normalization
+        if density is not None:
+            if not isinstance(density, Series):
+                raise TypeError(
+                    "density must be a pandas Series with index coincide with "
+                    "the kernel dimensions."
+                )
+            density = density.rename("density").reset_index()
+            kernel_span = kernel.span
+            missing_cols = set(kernel_span.columns) - set(density.columns)
+            if missing_cols:
+                raise ValueError(
+                    f"Please provide {missing_cols} as the density index."
+                )
+            matched_density = kernel_span.merge(density, how="left")
+            if matched_density["density"].isna().any():
+                raise ValueError(
+                    "Missing density value for certain kernel dimension."
+                )
+            density = matched_density["density"].to_numpy()
+            df["val"] *= density[df["col_index"].to_numpy()]
+        df["val"] /= df.groupby("row_index")["val"].transform("sum")
+
+        return Likelihood.integral_to_design_mat(df, shape)
 
     @partial(jax.jit, static_argnums=0)
     def get_lin_param(self, x: JAXArray) -> JAXArray:
@@ -85,6 +141,10 @@ class Likelihood(ABC):
 
         return op_hess
 
+    def hessian_matrix(self, x: JAXArray) -> JAXArray:
+        diag = jnp.diag(self.hessian_diag(x))
+        return self.data["mat"].T @ (diag @ self.data["mat"])
+
 
 class BinomialLikelihood(Likelihood):
     def __init__(self, obs: str, weights: str, offset: str) -> None:
@@ -109,7 +169,9 @@ class BinomialLikelihood(Likelihood):
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(self.get_lin_param(x))
-        return self.data["weights"] * (z / (1 + z) - self.data["obs"])
+        return self.data["mat"].T @ (
+            self.data["weights"] * (z / (1 + z) - self.data["obs"])
+        )
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> Callable:
@@ -136,7 +198,9 @@ class GaussianLikelihood(Likelihood):
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.data["weights"] * (y - self.data["obs"])
+        return self.data["mat"].T @ (
+            self.data["weights"] * (y - self.data["obs"])
+        )
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
@@ -167,7 +231,9 @@ class PoissonLikelihood(Likelihood):
     @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.data["weights"] * (jnp.exp(y) - self.data["obs"])
+        return self.data["mat"].T @ (
+            self.data["weights"] * (jnp.exp(y) - self.data["obs"])
+        )
 
     @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
