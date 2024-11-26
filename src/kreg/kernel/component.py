@@ -20,6 +20,7 @@ class KernelComponent:
         self.name = name
         self.kfunc = kfunc
         self._grid: JAXArray
+        self._span: DataFrame
 
     @property
     def grid(self) -> JAXArray:
@@ -30,10 +31,25 @@ class KernelComponent:
             )
         return self._grid
 
+    @property
+    def span(self) -> DataFrame:
+        if not hasattr(self, "_span"):
+            raise ValueError(
+                "Kernel component does not have data, please attach dataframe"
+                "first."
+            )
+        return self._span
+
     def attach(self, data: DataFrame) -> None:
         if not hasattr(self, "_grid"):
             self._grid = jnp.asarray(
                 data.sort_values(self.name)[self.name].drop_duplicates()
+            )
+            self._span = DataFrame(
+                data=self.grid,
+                columns=[self.name]
+                if isinstance(self.name, str)
+                else self.name,
             )
 
     def build_kmat(self, nugget: float = 0.0) -> JAXArray:

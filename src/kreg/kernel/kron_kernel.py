@@ -1,5 +1,6 @@
 import math
 from enum import StrEnum
+from functools import reduce
 
 import jax.numpy as jnp
 from pykronecker import KroneckerProduct
@@ -51,7 +52,7 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
-        self.status: KronKernelStatus = KronKernelStatus.NOGRID
+        self.span: DataFrame
 
     def build_matrices(self):
         if self.status == KronKernelStatus.NOGRID:
@@ -84,6 +85,8 @@ class KroneckerKernel:
         if self.status == KronKernelStatus.NOGRID:
             for component in self.kernel_components:
                 component.attach(data)
+            span = [component.span for component in self.kernel_components]
+            self.span = reduce(lambda x, y: x.merge(y, how="cross"), span)
             self.status = KronKernelStatus.HASGRID
         self.build_matrices()
 
