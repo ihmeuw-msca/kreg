@@ -1,9 +1,11 @@
-import math
+import itertools
 
 import jax.numpy as jnp
+import numpy as np
 from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
+from kreg.kernel.dimension import Dimension
 from kreg.typing import DataFrame, JAXArray
 
 
@@ -30,13 +32,20 @@ class KroneckerKernel:
         self.kernel_components = kernel_components
         self.nugget = nugget
 
-        self.names: list[str] = []
+        self.dimensions: list[Dimension] = []
+        self.columns: list[str] = []
         for component in self.kernel_components:
-            name = component.name
-            if isinstance(name, str):
-                self.names.append(name)
+            dimensions = component.dimensions
+            if isinstance(dimensions, Dimension):
+                self.dimensions.append(dimensions)
             else:
-                self.names.extend(list(name))
+                self.dimensions.extend(dimensions)
+        for dimension in self.dimensions:
+            columns = dimension.columns
+            if isinstance(columns, str):
+                self.columns.append(columns)
+            else:
+                self.columns.extend(columns)
 
         self.kmats: list[JAXArray]
         self.op_k: KroneckerProduct
@@ -44,16 +53,23 @@ class KroneckerKernel:
         self.op_p: KroneckerProduct
         self.op_root_k: KroneckerProduct
         self.op_root_p: KroneckerProduct
+        self.status = "detached"
 
-    def attach(self, data: DataFrame) -> None:
-        for component in self.kernel_components:
-            component.attach(data)
+    @property
+    def span(self) -> DataFrame:
+        span = DataFrame(
+            data=np.asarray(
+                list(itertools.product(*[dim.span for dim in self.dimensions])),
+            ),
+            columns=[dim.name for dim in self.dimensions],
+        )
+        return span
 
+    def _build_matrices(self):
         self.kmats = [
             component.build_kmat(self.nugget)
             for component in self.kernel_components
         ]
-
         self.op_k = KroneckerProduct(self.kmats)
         self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
         self.op_p = KroneckerProduct(
@@ -66,6 +82,23 @@ class KroneckerKernel:
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
 
+    def attach(self, data: DataFrame) -> None:
+        if self.status == "detached":
+            for component in self.kernel_components:
+                component.set_span(data)
+            self._build_matrices()
+            self.status = "attached"
+
+    def clear_matrices(self) -> None:
+        if self.status == "attached":
+            del self.kmats
+            del self.op_k
+            del self.eigdecomps
+            del self.op_p
+            del self.op_root_k
+            del self.op_root_p
+            self.status = "detached"
+
     def dot(self, x: JAXArray) -> JAXArray:
         return self.op_k @ x
 
@@ -73,4 +106,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return math.prod(map(len, self.kernel_components))
+        return len(self.span)

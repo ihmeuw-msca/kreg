@@ -77,17 +77,17 @@ class NystroemPreconBuilder(PreconBuilder):
         self.keys: list[JAXArray] = []
 
     def __call__(self, x: JAXArray) -> Callable:
-        hess_diag = self.likelihood.hessian_diag(x)
+        hess = self.likelihood.hessian(x)
         op_sqrt_k = self.kernel.op_root_k
 
         op_sqrt_kdk = jax.vmap(
-            lambda x: op_sqrt_k @ (hess_diag * (op_sqrt_k @ x)),
+            lambda x: op_sqrt_k @ (hess(op_sqrt_k @ x)),
             in_axes=1,
             out_axes=1,
         )
         self.key += 1
         U, E = randomized_nystroem(
-            op_sqrt_kdk, len(hess_diag), self.rank, self.key
+            op_sqrt_kdk, len(self.kernel), self.rank, self.key
         )
         self.keys.append(self.key)
 
