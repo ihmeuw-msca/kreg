@@ -174,7 +174,7 @@ class BinomialLikelihood(Likelihood):
 
     # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.get_lin_param(x)
         return self.data["weights"] * (
             jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
         )
@@ -212,7 +212,7 @@ class GaussianLikelihood(Likelihood):
 
     # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.get_lin_param(x)
         return 0.5 * self.data["weights"] * (self.data["obs"] - y) ** 2
 
     # @partial(jax.jit, static_argnums=0)
@@ -250,7 +250,7 @@ class PoissonLikelihood(Likelihood):
 
     # @partial(jax.jit, static_argnums=0)
     def nll_terms(self, x: JAXArray) -> JAXArray:
-        y = x + self.data["offset"]
+        y = self.get_lin_param(x)
         return self.data["weights"] * (jnp.exp(y) - self.data["obs"] * y)
 
     # @partial(jax.jit, static_argnums=0)
