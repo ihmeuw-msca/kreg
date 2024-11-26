@@ -16,6 +16,7 @@ class Likelihood(ABC):
         self.weights = weights
         self.offset = offset
         self.data: dict[str, JAXArray] = {}
+        self.trim_weights: JAXArray
 
     @property
     def size(self) -> int | None:
@@ -42,8 +43,16 @@ class Likelihood(ABC):
                 raise ValueError("Weights must be non-negative.")
             self.data["obs"] = jnp.asarray(data[self.obs])
             self.data["weights"] = jnp.asarray(data[self.weights])
+            self.data["orig_weights"] = jnp.asarray(data[self.weights])
+            self.data["trim_weights"] = jnp.ones(len(data))
         self.data["offset"] = jnp.asarray(data[self.offset])
         self.data["mat"] = self.encode(data, kernel, density)
+
+    def update_trim_weights(self, w: JAXArray) -> None:
+        self.data["trim_weights"] = jnp.asarray(w)
+        self.data["weights"] = (
+            self.data["orig_weights"] * self.data["trim_weights"]
+        )
 
     def detach(self) -> None:
         self.data.clear()
@@ -122,6 +131,10 @@ class Likelihood(ABC):
         return self.inv_link(self.get_lin_param(x))
 
     @abstractmethod
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        """Terms of the negative log likelihood."""
+
+    @abstractmethod
     def objective(self, x: JAXArray) -> JAXArray:
         """Negative log likelihood."""
 
@@ -159,14 +172,21 @@ class BinomialLikelihood(Likelihood):
     def inv_link(self) -> Callable:
         return expit
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = self.get_lin_param(x)
+        return self.data["weights"] * (
+            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
+        )
+
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         return self.data["weights"].dot(
             jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
         )
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(self.get_lin_param(x))
         return self.data["mat"].T @ (
@@ -190,19 +210,24 @@ class GaussianLikelihood(Likelihood):
     def inv_link(self) -> Callable:
         return identity
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = self.get_lin_param(x)
+        return 0.5 * self.data["weights"] * (self.data["obs"] - y) ** 2
+
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         return self.data["mat"].T @ (
             self.data["weights"] * (y - self.data["obs"])
         )
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         diag = self.data["weights"]
         return diag
@@ -223,19 +248,24 @@ class PoissonLikelihood(Likelihood):
     def inv_link(self) -> Callable:
         return jnp.exp
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = self.get_lin_param(x)
+        return self.data["weights"] * (jnp.exp(y) - self.data["obs"] * y)
+
+    # @partial(jax.jit, static_argnums=0)
     def objective(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         return self.data["weights"].dot(jnp.exp(y) - self.data["obs"] * y)
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         return self.data["mat"].T @ (
             self.data["weights"] * (jnp.exp(y) - self.data["obs"])
         )
 
-    @partial(jax.jit, static_argnums=0)
+    # @partial(jax.jit, static_argnums=0)
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
         diag = self.data["weights"] * jnp.exp(y)

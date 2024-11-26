@@ -2,6 +2,7 @@ from functools import reduce
 
 import jax
 import jax.numpy as jnp
+from msca.optim.prox import proj_capped_simplex
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
@@ -25,7 +26,7 @@ class KernelRegModel:
         self.likelihood = likelihood
         self.lam = lam
         self.lam_ridge = lam_ridge
-        self.fitted_result = None
+
         self.x: JAXArray
         self.solver_info: dict
 
@@ -64,7 +65,7 @@ class KernelRegModel:
 
     def fit(
         self,
-        data: DataFrame,
+        data: DataFrame | None = None,
         data_span: DataFrame | None = None,
         density: NDArray | None = None,
         x0: JAXArray | None = None,
@@ -73,20 +74,24 @@ class KernelRegModel:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 25,
-        disable_tqdm=False,
-        lam=None,
+        disable_tqdm: bool = False,
+        lam: float | None = None,
+        detach_likelihood: bool = True,
         use_direct=False,
         grad_decrease=0.5,
     ) -> tuple[JAXArray, dict]:
         if lam is not None:
             self.lam = lam
         # attach dataframe
-        self.kernel.attach(data if data_span is None else data_span)
-        self.likelihood.attach(data, self.kernel, train=True, density=density)
+        if data is not None:
+            self.kernel.attach(data if data_span is None else data_span)
+            self.likelihood.attach(
+                data, self.kernel, train=True, density=density
+            )
 
         if x0 is None:
-            if self.fitted_result is not None:
-                x0 = self.fitted_result
+            if hasattr(self, "x"):
+                x0 = self.x
             else:
                 x0 = jnp.zeros(len(self.kernel))
 
@@ -129,9 +134,63 @@ class KernelRegModel:
                 grad_decrease=grad_decrease,
             )
 
-        self.likelihood.detach()
+        if detach_likelihood:
+            self.likelihood.detach()
         self.kernel.clear_matrices()
         return self.x, self.solver_info
+
+    def fit_trimming(
+        self,
+        data: DataFrame,
+        trim_steps: int = 10,
+        step_size: float = 10.0,
+        inlier_pct: float = 0.95,
+        solver_options: dict | None = None,
+    ) -> tuple[JAXArray, JAXArray]:
+        if trim_steps < 2:
+            raise ValueError("At least two trimming steps.")
+        if inlier_pct < 0.0 or inlier_pct > 1.0:
+            raise ValueError("inlier_pct has to be between 0 and 1.")
+        if solver_options is None:
+            solver_options = {}
+        solver_options["detach_likelihood"] = False
+
+        y = self.fit(data, **solver_options)[0]
+
+        if inlier_pct < 1.0:
+            num_inliers = int(inlier_pct * len(data))
+            counter = 0
+            success = False
+            while (counter < trim_steps) and (not success):
+                counter += 1
+                nll_terms = self.likelihood.nll_terms(y)
+                trim_weights = proj_capped_simplex(
+                    self.likelihood.data["trim_weights"]
+                    - step_size * nll_terms,
+                    num_inliers,
+                )
+                self.likelihood.update_trim_weights(trim_weights)
+                solver_options["x0"] = y
+                y = self.fit(**solver_options)[0]
+                success = all(
+                    jnp.isclose(self.likelihood.data["trim_weights"], 0.0)
+                    | jnp.isclose(self.likelihood.data["trim_weights"], 1.0)
+                )
+            if not success:
+                trim_weights = self.likelihood.data["trim_weights"]
+                sort_indices = jnp.argsort(trim_weights)
+                trim_weights = trim_weights.at[sort_indices[-num_inliers:]].set(
+                    1.0
+                )
+                trim_weights = trim_weights.at[sort_indices[:-num_inliers]].set(
+                    0.0
+                )
+                self.likelihood.data["trim_weights"] = trim_weights
+
+        trim_weights = self.likelihood.data["trim_weights"]
+        self.likelihood.detach()
+
+        return y, trim_weights
 
     def predict(self, data, y):
         if self.kernel.matrices_computed is False:
