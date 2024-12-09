@@ -31,6 +31,12 @@ class Likelihood(ABC):
         prediction space.
         """
 
+    def _validate_data(self, data: DataFrame) -> DataFrame:
+        """Add necessary validation for the data for each likelihood."""
+        if not (data[self.weights] >= 0).all():
+            raise ValueError("Weights must be non-negative.")
+        return data
+
     def attach(
         self,
         data: DataFrame,
@@ -39,8 +45,7 @@ class Likelihood(ABC):
         density: NDArray | None = None,
     ) -> None:
         if train:
-            if not (data[self.weights] >= 0).all():
-                raise ValueError("Weights must be non-negative.")
+            data = self._validate_data(data)
             self.data["obs"] = jnp.asarray(data[self.obs])
             self.data["weights"] = jnp.asarray(data[self.weights])
             self.data["orig_weights"] = jnp.asarray(data[self.weights])
@@ -163,10 +168,11 @@ class BinomialLikelihood(Likelihood):
     def __init__(self, obs: str, weights: str, offset: str) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame, *args, **kwargs) -> None:
+    def _validate_data(self, data: DataFrame) -> DataFrame:
+        data = super()._validate_data(data)
         if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
             raise ValueError("Observations must be in [0, 1].")
-        return super().attach(data, *args, **kwargs)
+        return data
 
     @property
     def inv_link(self) -> Callable:
@@ -239,10 +245,11 @@ class PoissonLikelihood(Likelihood):
     ) -> None:
         super().__init__(obs, weights, offset)
 
-    def attach(self, data: DataFrame, *args, **kwargs) -> None:
+    def _validate_data(self, data: DataFrame) -> DataFrame:
+        data = super()._validate_data(data)
         if not (data[self.obs] >= 0).all():
             raise ValueError("Observations must be non-negative.")
-        return super().attach(data, *args, **kwargs)
+        return data
 
     @property
     def inv_link(self) -> Callable:
