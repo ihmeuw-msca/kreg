@@ -1,5 +1,3 @@
-from functools import reduce
-
 import jax
 import jax.numpy as jnp
 from msca.optim.prox import proj_capped_simplex
@@ -192,26 +190,10 @@ class KernelRegModel:
 
         return y, trim_weights
 
-    def predict(self, data, y):
-        if self.kernel.matrices_computed is False:
-            self.kernel.build_matrices()
+    def predict(self, data, y: NDArray | None = None) -> NDArray:
+        self.kernel.attach(data)
         self.likelihood.attach(data, self.kernel, train=False)
-        components = self.kernel.kernel_components
-        prediction_inputs = [
-            jnp.array(data[kc.name].values) for kc in components
-        ]
-
-        def _predict_single(*single_input):
-            return jnp.dot(
-                reduce(
-                    jnp.kron,
-                    [
-                        kc.kfunc(jnp.array([x]), kc.grid)
-                        for kc, x in zip(components, *single_input)
-                    ],
-                ),
-                self.kernel.op_p @ y,
-            )
-
-        predict_vec = jax.vmap(jax.jit(_predict_single))
-        return predict_vec(prediction_inputs)
+        pred = self.likelihood.get_param(self.x if y is None else y)
+        self.kernel.clear_matrices()
+        self.likelihood.detach()
+        return pred
