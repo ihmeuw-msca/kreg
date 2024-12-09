@@ -6,7 +6,7 @@ from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton import NewtonCG, NewtonDirect
-from kreg.typing import Callable, DataFrame, JAXArray, NDArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -65,7 +65,7 @@ class KernelRegModel:
         self,
         data: DataFrame | None = None,
         data_span: DataFrame | None = None,
-        density: NDArray | None = None,
+        density: Series | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -140,6 +140,8 @@ class KernelRegModel:
     def fit_trimming(
         self,
         data: DataFrame,
+        data_span: DataFrame | None = None,
+        density: Series | None = None,
         trim_steps: int = 10,
         step_size: float = 10.0,
         inlier_pct: float = 0.95,
@@ -153,7 +155,9 @@ class KernelRegModel:
             solver_options = {}
         solver_options["detach_likelihood"] = False
 
-        y = self.fit(data, **solver_options)[0]
+        y = self.fit(
+            data, data_span=data_span, density=density, **solver_options
+        )[0]
 
         if inlier_pct < 1.0:
             num_inliers = int(inlier_pct * len(data))
