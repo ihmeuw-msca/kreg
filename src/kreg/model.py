@@ -2,6 +2,7 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from msca.optim.prox import proj_capped_simplex
 
 from kreg.kernel.kron_kernel import KroneckerKernel
@@ -237,4 +238,4 @@ class KernelRegModel:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)
         self.detach()
-        return pred
+        return np.asarray(pred)
