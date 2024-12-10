@@ -74,7 +74,7 @@ class KernelRegModel:
         nystroem_rank: int = 25,
         disable_tqdm: bool = False,
         lam: float | None = None,
-        detach_likelihood: bool = True,
+        detach: bool = True,
         use_direct=False,
         grad_decrease=0.5,
     ) -> tuple[JAXArray, dict]:
@@ -132,9 +132,9 @@ class KernelRegModel:
                 grad_decrease=grad_decrease,
             )
 
-        if detach_likelihood:
+        if detach:
             self.likelihood.detach()
-        self.kernel.clear_matrices()
+            self.kernel.clear_matrices()
         return self.x, self.solver_info
 
     def fit_trimming(
@@ -153,7 +153,7 @@ class KernelRegModel:
             raise ValueError("inlier_pct has to be between 0 and 1.")
         if solver_options is None:
             solver_options = {}
-        solver_options["detach_likelihood"] = False
+        solver_options["detach"] = False
 
         y = self.fit(
             data, data_span=data_span, density=density, **solver_options
@@ -191,6 +191,7 @@ class KernelRegModel:
 
         trim_weights = self.likelihood.data["trim_weights"]
         self.likelihood.detach()
+        self.kernel.clear_matrices()
 
         return y, trim_weights
 
