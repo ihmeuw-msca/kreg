@@ -66,3 +66,13 @@ def test_model_fit_trimming(
     )
     assert np.allclose(x, 0.0)
     assert np.allclose(trim_weights, [1.0, 1.0, 1.0, 0.0])
+
+
+def test_model_predict_from_kernel(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    model.fit(data, use_direct=True)
+
+    data_pred = pd.DataFrame(dict(age_mid=np.linspace(0.0, 3.0, 7), offset=1.0))
+    y = model.predict(data_pred, from_kernel=True)
+    assert np.allclose(y, 1.0)
