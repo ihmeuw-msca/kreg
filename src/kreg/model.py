@@ -204,10 +204,8 @@ class KernelRegModel:
 
         return y, trim_weights
 
-    def predict(self, data, y: NDArray | None = None) -> NDArray:
-        self.kernel.attach(data)
-        self.likelihood.attach(data, self.kernel, train=False)
-        pred = self.likelihood.get_param(self.x if y is None else y)
-        self.kernel.clear_matrices()
-        self.likelihood.detach()
+    def predict(self, data, x: NDArray | None = None) -> NDArray:
+        self.attach(data, train=False)
+        pred = self.likelihood.get_param(self.x if x is None else x)
+        self.detach()
         return pred

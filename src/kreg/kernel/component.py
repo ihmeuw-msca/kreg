@@ -56,6 +56,7 @@ class KernelComponent:
         return len(self.span)
 
     def set_span(self, data: DataFrame) -> None:
+        """This function will only get triggered if the span has not been set."""
         if not hasattr(self, "_span"):
             if isinstance(self.dimensions, list):
                 for dimension in self.dimensions:
