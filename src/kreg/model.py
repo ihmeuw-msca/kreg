@@ -1,5 +1,3 @@
-from functools import reduce
-
 import jax
 import jax.numpy as jnp
 from msca.optim.prox import proj_capped_simplex
@@ -8,7 +6,7 @@ from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton import NewtonCG, NewtonDirect
-from kreg.typing import Callable, DataFrame, JAXArray, NDArray
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -63,11 +61,25 @@ class KernelRegModel:
             + self.lam_ridge * jnp.eye(len(x))
         )
 
+    def attach(
+        self,
+        data: DataFrame,
+        data_span: DataFrame | None = None,
+        density: Series | None = None,
+        train: bool = True,
+    ) -> None:
+        self.kernel.attach(data if data_span is None else data_span)
+        self.likelihood.attach(data, self.kernel, train=train, density=density)
+
+    def detach(self) -> None:
+        self.likelihood.detach()
+        self.kernel.clear_matrices()
+
     def fit(
         self,
         data: DataFrame | None = None,
         data_span: DataFrame | None = None,
-        density: NDArray | None = None,
+        density: Series | None = None,
         x0: JAXArray | None = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
@@ -76,7 +88,7 @@ class KernelRegModel:
         nystroem_rank: int = 25,
         disable_tqdm: bool = False,
         lam: float | None = None,
-        detach_likelihood: bool = True,
+        detach: bool = True,
         use_direct=False,
         grad_decrease=0.5,
     ) -> tuple[JAXArray, dict]:
@@ -84,10 +96,7 @@ class KernelRegModel:
             self.lam = lam
         # attach dataframe
         if data is not None:
-            self.kernel.attach(data if data_span is None else data_span)
-            self.likelihood.attach(
-                data, self.kernel, train=True, density=density
-            )
+            self.attach(data, data_span=data_span, density=density, train=True)
 
         if x0 is None:
             if hasattr(self, "x"):
@@ -134,14 +143,15 @@ class KernelRegModel:
                 grad_decrease=grad_decrease,
             )
 
-        if detach_likelihood:
-            self.likelihood.detach()
-        self.kernel.clear_matrices()
+        if detach:
+            self.detach()
         return self.x, self.solver_info
 
     def fit_trimming(
         self,
         data: DataFrame,
+        data_span: DataFrame | None = None,
+        density: Series | None = None,
         trim_steps: int = 10,
         step_size: float = 10.0,
         inlier_pct: float = 0.95,
@@ -153,9 +163,11 @@ class KernelRegModel:
             raise ValueError("inlier_pct has to be between 0 and 1.")
         if solver_options is None:
             solver_options = {}
-        solver_options["detach_likelihood"] = False
+        solver_options["detach"] = False
 
-        y = self.fit(data, **solver_options)[0]
+        y = self.fit(
+            data, data_span=data_span, density=density, **solver_options
+        )[0]
 
         if inlier_pct < 1.0:
             num_inliers = int(inlier_pct * len(data))
@@ -188,30 +200,14 @@ class KernelRegModel:
                 self.likelihood.data["trim_weights"] = trim_weights
 
         trim_weights = self.likelihood.data["trim_weights"]
-        self.likelihood.detach()
+        self.detach()
 
         return y, trim_weights
 
-    def predict(self, data, y):
-        if self.kernel.matrices_computed is False:
-            self.kernel.build_matrices()
+    def predict(self, data, y: NDArray | None = None) -> NDArray:
+        self.kernel.attach(data)
         self.likelihood.attach(data, self.kernel, train=False)
-        components = self.kernel.kernel_components
-        prediction_inputs = [
-            jnp.array(data[kc.name].values) for kc in components
-        ]
-
-        def _predict_single(*single_input):
-            return jnp.dot(
-                reduce(
-                    jnp.kron,
-                    [
-                        kc.kfunc(jnp.array([x]), kc.grid)
-                        for kc, x in zip(components, *single_input)
-                    ],
-                ),
-                self.kernel.op_p @ y,
-            )
-
-        predict_vec = jax.vmap(jax.jit(_predict_single))
-        return predict_vec(prediction_inputs)
+        pred = self.likelihood.get_param(self.x if y is None else y)
+        self.kernel.clear_matrices()
+        self.likelihood.detach()
+        return pred
