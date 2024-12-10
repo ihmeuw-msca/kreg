@@ -21,6 +21,18 @@ def data() -> pd.DataFrame:
 
 
 @pytest.fixture
+def data_with_outlier() -> pd.DataFrame:
+    return pd.DataFrame(
+        dict(
+            obs=[1.0, 1.0, 1.0, 2.0],
+            weights=[1.0, 1.0, 1.0, 1.0],
+            offset=[1.0, 1.0, 1.0, 1.0],
+            age_mid=[1.0, 2.0, 3.0, 4.0],
+        )
+    )
+
+
+@pytest.fixture
 def model() -> KernelRegModel:
     kernel = KroneckerKernel(
         [
@@ -37,8 +49,20 @@ def model() -> KernelRegModel:
     return model
 
 
-def test_model_predict(model: KernelRegModel, data: pd.DataFrame):
+def test_model_predict(model: KernelRegModel, data: pd.DataFrame) -> None:
     model.fit(data, use_direct=True)
 
     y = model.predict(data)
     assert np.allclose(y, 1.0)
+
+
+def test_model_fit_trimming(
+    model: KernelRegModel, data_with_outlier: pd.DataFrame
+) -> None:
+    x, trim_weights = model.fit_trimming(
+        data_with_outlier,
+        inlier_pct=0.75,
+        solver_options=dict(use_direct=True),
+    )
+    assert np.allclose(x, 0.0)
+    assert np.allclose(trim_weights, [1.0, 1.0, 1.0, 0.0])
