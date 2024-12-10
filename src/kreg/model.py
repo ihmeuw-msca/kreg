@@ -61,6 +61,20 @@ class KernelRegModel:
             + self.lam_ridge * jnp.eye(len(x))
         )
 
+    def attach(
+        self,
+        data: DataFrame,
+        data_span: DataFrame | None = None,
+        density: Series | None = None,
+        train: bool = True,
+    ) -> None:
+        self.kernel.attach(data if data_span is None else data_span)
+        self.likelihood.attach(data, self.kernel, train=train, density=density)
+
+    def detach(self) -> None:
+        self.likelihood.detach()
+        self.kernel.clear_matrices()
+
     def fit(
         self,
         data: DataFrame | None = None,
@@ -82,10 +96,7 @@ class KernelRegModel:
             self.lam = lam
         # attach dataframe
         if data is not None:
-            self.kernel.attach(data if data_span is None else data_span)
-            self.likelihood.attach(
-                data, self.kernel, train=True, density=density
-            )
+            self.attach(data, data_span=data_span, density=density, train=True)
 
         if x0 is None:
             if hasattr(self, "x"):
@@ -133,8 +144,7 @@ class KernelRegModel:
             )
 
         if detach:
-            self.likelihood.detach()
-            self.kernel.clear_matrices()
+            self.detach()
         return self.x, self.solver_info
 
     def fit_trimming(
@@ -190,8 +200,7 @@ class KernelRegModel:
                 self.likelihood.data["trim_weights"] = trim_weights
 
         trim_weights = self.likelihood.data["trim_weights"]
-        self.likelihood.detach()
-        self.kernel.clear_matrices()
+        self.detach()
 
         return y, trim_weights
 
