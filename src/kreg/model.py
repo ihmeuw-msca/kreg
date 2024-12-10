@@ -1,5 +1,8 @@
+import functools
+
 import jax
 import jax.numpy as jnp
+import numpy as np
 from msca.optim.prox import proj_capped_simplex
 
 from kreg.kernel.kron_kernel import KroneckerKernel
@@ -204,10 +207,35 @@ class KernelRegModel:
 
         return y, trim_weights
 
-    def predict(self, data, y: NDArray | None = None) -> NDArray:
-        self.kernel.attach(data)
-        self.likelihood.attach(data, self.kernel, train=False)
-        pred = self.likelihood.get_param(self.x if y is None else y)
-        self.kernel.clear_matrices()
-        self.likelihood.detach()
-        return pred
+    def predict(
+        self, data, x: NDArray | None = None, from_kernel: bool = False
+    ) -> NDArray:
+        x = self.x if x is None else x
+        if from_kernel:
+            self.kernel.attach(data)
+            kernel_components = self.kernel.kernel_components
+            rows = [
+                jnp.asarray(data[kc.dim_names].to_numpy())
+                for kc in kernel_components
+            ]
+            inv_k_x = self.kernel.op_p @ x
+
+            def predict_row(*row):
+                k_new_x = functools.reduce(
+                    jnp.kron,
+                    [
+                        kc.kfunc(jnp.asarray([coords]), kc.span)
+                        for kc, coords in zip(kernel_components, row)
+                    ],
+                )
+                return jnp.dot(k_new_x, inv_k_x)
+
+            predict_rows = jax.vmap(jax.jit(predict_row))
+            pred = self.likelihood.inv_link(
+                data[self.likelihood.offset].to_numpy() + predict_rows(rows)
+            )
+        else:
+            self.attach(data, train=False)
+            pred = self.likelihood.get_param(x)
+        self.detach()
+        return np.asarray(pred)

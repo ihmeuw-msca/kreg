@@ -55,7 +55,14 @@ class KernelComponent:
     def size(self) -> int:
         return len(self.span)
 
+    @property
+    def dim_names(self) -> str | list[str]:
+        if isinstance(self.dimensions, list):
+            return [dim.name for dim in self.dimensions]
+        return self.dimensions.name
+
     def set_span(self, data: DataFrame) -> None:
+        """This function will only get triggered if the span has not been set."""
         if not hasattr(self, "_span"):
             if isinstance(self.dimensions, list):
                 for dimension in self.dimensions:
