@@ -232,7 +232,8 @@ class KernelRegModel:
 
             predict_rows = jax.vmap(jax.jit(predict_row))
             pred = self.likelihood.inv_link(
-                data[self.likelihood.offset].to_numpy() + predict_rows(rows)
+                data[self.likelihood.offset].to_numpy()
+                + predict_rows(*rows).ravel()
             )
         else:
             self.attach(data, train=False)
