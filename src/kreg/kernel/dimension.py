@@ -70,10 +70,10 @@ class Dimension:
         if self.interval is None:
             row_index = np.arange(len(data), dtype=int)
             col_index = (
-                data[[self.name]]
+                data[self.columns]
                 .merge(
-                    DataFrame({self.name: self.span}).reset_index(),
-                    on=self.name,
+                    DataFrame(self.span, columns=self.columns).reset_index(),
+                    on=self.columns,
                     how="left",
                 )["index"]
                 .to_numpy()
