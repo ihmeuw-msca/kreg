@@ -8,10 +8,20 @@ from kreg.typing import DataFrame, NDArray
 
 class Dimension:
     def __init__(
-        self, name: str, interval: tuple[str, str] | None = None
+        self,
+        name: str,
+        interval: tuple[str, str] | None = None,
+        coords: tuple[str, ...] | None = None,
     ) -> None:
+        if interval is not None and coords is not None:
+            raise ValueError("cannot use 'interval' and 'coords' together")
+
         self.name = name
         self.interval = interval
+        self.coords = coords
+
+        columns = coords or (interval or [name])
+        self.columns = list(columns)
 
         self._grid: NDArray
         self._span: NDArray
@@ -28,10 +38,6 @@ class Dimension:
             raise AttributeError("Please set dimension span first")
         return self._grid
 
-    @property
-    def columns(self) -> list[str]:
-        return [self.name] if self.interval is None else list(self.interval)
-
     def set_span(
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> None:
@@ -42,15 +48,15 @@ class Dimension:
             data[self.columns]
             .drop_duplicates()
             .sort_values(by=self.columns, ignore_index=True)
+            .to_numpy()
         )
 
         if self.interval is None:
-            self._span = np.unique(data[self.name])
+            self._span = data.ravel() if self.coords is None else data
             self._grid = self._span.copy()
         else:
-            lb, ub = self.interval
-            grid = np.hstack([data.loc[0, lb], data[ub]])
-            if not np.allclose(data[lb], grid[:-1]):
+            grid = np.hstack([data[0, 0], data[:, 1]])
+            if not np.allclose(data[:, 0], grid[:-1]):
                 raise ValueError("Range intervals contain gap(s)")
             self._grid = grid
             if rule == "midpoint":
