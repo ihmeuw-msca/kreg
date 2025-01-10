@@ -1,4 +1,4 @@
-from typing import Literal, Self
+from typing import Literal
 
 import numpy as np
 from msca.integrate.integration_weights import build_integration_weights
@@ -10,8 +10,8 @@ class Dimension:
     def __init__(
         self,
         name: str,
-        interval: tuple[str, str] | None = None,
         coords: tuple[str, ...] | None = None,
+        interval: tuple[str, str] | None = None,
     ) -> None:
         if interval is not None and coords is not None:
             raise ValueError("cannot use 'interval' and 'coords' together")
@@ -60,7 +60,7 @@ class Dimension:
                 raise ValueError("Range intervals contain gap(s)")
             self._grid = grid
             if rule == "midpoint":
-                self._span = np.asarray(data.mean(axis=1))
+                self._span = data.mean(axis=1)
             else:
                 raise ValueError(f"Unknown rule='{rule}'")
 
@@ -96,11 +96,3 @@ class Dimension:
 
     def __len__(self) -> int:
         return len(self.span)
-
-    @classmethod
-    def from_config(
-        cls, config: str | tuple[str, tuple[str, str] | None]
-    ) -> Self:
-        if isinstance(config, str):
-            return cls(config)
-        return cls(*config)
