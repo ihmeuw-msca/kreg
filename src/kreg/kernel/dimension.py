@@ -1,4 +1,4 @@
-from typing import Literal, Self
+from typing import Literal
 
 import numpy as np
 from msca.integrate.integration_weights import build_integration_weights
@@ -8,10 +8,20 @@ from kreg.typing import DataFrame, NDArray
 
 class Dimension:
     def __init__(
-        self, name: str, interval: tuple[str, str] | None = None
+        self,
+        name: str,
+        coords: tuple[str, ...] | None = None,
+        interval: tuple[str, str] | None = None,
     ) -> None:
+        if interval is not None and coords is not None:
+            raise ValueError("cannot use 'interval' and 'coords' together")
+
         self.name = name
         self.interval = interval
+        self.coords = coords
+
+        columns = coords or (interval or [name])
+        self.columns = list(columns)
 
         self._grid: NDArray
         self._span: NDArray
@@ -28,10 +38,6 @@ class Dimension:
             raise AttributeError("Please set dimension span first")
         return self._grid
 
-    @property
-    def columns(self) -> list[str]:
-        return [self.name] if self.interval is None else list(self.interval)
-
     def set_span(
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> None:
@@ -42,19 +48,19 @@ class Dimension:
             data[self.columns]
             .drop_duplicates()
             .sort_values(by=self.columns, ignore_index=True)
+            .to_numpy()
         )
 
         if self.interval is None:
-            self._span = np.unique(data[self.name])
+            self._span = data.ravel() if self.coords is None else data
             self._grid = self._span.copy()
         else:
-            lb, ub = self.interval
-            grid = np.hstack([data.loc[0, lb], data[ub]])
-            if not np.allclose(data[lb], grid[:-1]):
+            grid = np.hstack([data[0, 0], data[:, 1]])
+            if not np.allclose(data[:, 0], grid[:-1]):
                 raise ValueError("Range intervals contain gap(s)")
             self._grid = grid
             if rule == "midpoint":
-                self._span = np.asarray(data.mean(axis=1))
+                self._span = data.mean(axis=1)
             else:
                 raise ValueError(f"Unknown rule='{rule}'")
 
@@ -64,10 +70,10 @@ class Dimension:
         if self.interval is None:
             row_index = np.arange(len(data), dtype=int)
             col_index = (
-                data[[self.name]]
+                data[self.columns]
                 .merge(
-                    DataFrame({self.name: self.span}).reset_index(),
-                    on=self.name,
+                    DataFrame(self.span, columns=self.columns).reset_index(),
+                    on=self.columns,
                     how="left",
                 )["index"]
                 .to_numpy()
@@ -90,11 +96,3 @@ class Dimension:
 
     def __len__(self) -> int:
         return len(self.span)
-
-    @classmethod
-    def from_config(
-        cls, config: str | tuple[str, tuple[str, str] | None]
-    ) -> Self:
-        if isinstance(config, str):
-            return cls(config)
-        return cls(*config)
