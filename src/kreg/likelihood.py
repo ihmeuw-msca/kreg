@@ -22,7 +22,6 @@ class Likelihood(ABC):
         self.offset = offset
 
         self.data: dict[str, JAXArray] = {}
-        self.trim_weights: JAXArray
 
     @property
     def size(self) -> int | None:
