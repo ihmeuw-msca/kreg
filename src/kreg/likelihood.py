@@ -61,10 +61,16 @@ class Likelihood(ABC):
         if train:
             data = self._validate_data(data)
             self.data["obs"] = jnp.asarray(data[self.obs])
-            self.data["weights"] = jnp.asarray(data[self.weights])
+            if self.weights is not None:
+                self.data["weights"] = jnp.asarray(data[self.weights])
+            else:
+                self.data["weights"] = jnp.ones(len(data))
             self.data["orig_weights"] = jnp.asarray(data[self.weights])
             self.data["trim_weights"] = jnp.ones(len(data))
-        self.data["offset"] = jnp.asarray(data[self.offset])
+        if self.data["offset"] is not None:
+            self.data["offset"] = jnp.asarray(data[self.offset])
+        else:
+            self.data["offset"] = jnp.zeros(len(data))
         self.data["mat"] = self.encode(data, kernel, density)
 
     def update_trim_weights(self, w: JAXArray) -> None:
@@ -177,9 +183,6 @@ class Likelihood(ABC):
 
 
 class BinomialLikelihood(Likelihood):
-    def __init__(self, obs: str, weights: str, offset: str) -> None:
-        super().__init__(obs, weights, offset)
-
     def _validate_data(self, data: DataFrame) -> DataFrame:
         data = super()._validate_data(data)
         if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
@@ -215,11 +218,6 @@ class BinomialLikelihood(Likelihood):
 
 
 class GaussianLikelihood(Likelihood):
-    def __init__(
-        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
-    ) -> None:
-        super().__init__(obs, weights, offset)
-
     @property
     def inv_link(self) -> Callable:
         return identity
@@ -244,11 +242,6 @@ class GaussianLikelihood(Likelihood):
 
 
 class PoissonLikelihood(Likelihood):
-    def __init__(
-        self, obs: JAXArray, weights: JAXArray, offset: JAXArray
-    ) -> None:
-        super().__init__(obs, weights, offset)
-
     def _validate_data(self, data: DataFrame) -> DataFrame:
         data = super()._validate_data(data)
         if not (data[self.obs] >= 0).all():
