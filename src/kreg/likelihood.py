@@ -7,15 +7,12 @@ import numpy as np
 from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
-from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
+from kreg.typing import Callable, DataFrame, JAXArray, Series
 
 
 class Likelihood(ABC):
     def __init__(
-        self,
-        obs: str,
-        weights: str | None = None,
-        offset: str | None = None,
+        self, obs: str, weights: str | None = None, offset: str | None = None
     ) -> None:
         self.obs = obs
         self.weights = weights
@@ -55,7 +52,7 @@ class Likelihood(ABC):
         data: DataFrame,
         kernel: KroneckerKernel,
         train: bool = True,
-        density: NDArray | None = None,
+        density: Series | None = None,
     ) -> None:
         if train:
             data = self._validate_data(data)
@@ -210,7 +207,7 @@ class BinomialLikelihood(Likelihood):
             self.data["weights"] * (z / (1 + z) - self.data["obs"])
         )
 
-    def hessian_diag(self, x: JAXArray) -> Callable:
+    def hessian_diag(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(self.get_lin_param(x))
         diag = self.data["weights"] * (z / ((1 + z) ** 2))
         return diag
