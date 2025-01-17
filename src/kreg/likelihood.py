@@ -11,10 +11,16 @@ from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
 
 
 class Likelihood(ABC):
-    def __init__(self, obs: str, weights: str, offset: str) -> None:
+    def __init__(
+        self,
+        obs: str,
+        weights: str | None = None,
+        offset: str | None = None,
+    ) -> None:
         self.obs = obs
         self.weights = weights
         self.offset = offset
+
         self.data: dict[str, JAXArray] = {}
         self.trim_weights: JAXArray
 
@@ -33,8 +39,16 @@ class Likelihood(ABC):
 
     def _validate_data(self, data: DataFrame) -> DataFrame:
         """Add necessary validation for the data for each likelihood."""
-        if not (data[self.weights] >= 0).all():
-            raise ValueError("Weights must be non-negative.")
+        if data[self.obs].isna().any():
+            raise ValueError("Observations must not contain missing values.")
+        if self.weights is not None:
+            if data[self.weights].isna().any():
+                raise ValueError("Weights must not contain missing values.")
+            if not (data[self.weights] >= 0).all():
+                raise ValueError("Weights must be non-negative.")
+        if self.offset is not None:
+            if data[self.offset].isna().any():
+                raise ValueError("Offset must not contain missing values.")
         return data
 
     def attach(
