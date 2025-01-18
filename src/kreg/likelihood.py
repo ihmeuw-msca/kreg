@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import reduce
+from typing import NotRequired, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +11,15 @@ from kreg.kernel import KroneckerKernel
 from kreg.typing import Callable, DataFrame, JAXArray, Series
 
 
+class LikelihoodData(TypedDict):
+    obs: NotRequired[JAXArray]
+    weights: NotRequired[JAXArray]
+    orig_weights: NotRequired[JAXArray]
+    trim_weights: NotRequired[JAXArray]
+    offset: JAXArray
+    mat: BCOO
+
+
 class Likelihood(ABC):
     def __init__(
         self, obs: str, weights: str | None = None, offset: str | None = None
@@ -18,7 +28,7 @@ class Likelihood(ABC):
         self.weights = weights
         self.offset = offset
 
-        self.data: dict[str, JAXArray] = {}
+        self.data: LikelihoodData
 
     @property
     def size(self) -> int | None:
@@ -33,15 +43,18 @@ class Likelihood(ABC):
         prediction space.
         """
 
-    def _validate_data(self, data: DataFrame) -> DataFrame:
+    def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
         """Add necessary validation for the data for each likelihood."""
-        if data[self.obs].isna().any():
-            raise ValueError("Observations must not contain missing values.")
-        if self.weights is not None:
-            if data[self.weights].isna().any():
-                raise ValueError("Weights must not contain missing values.")
-            if not (data[self.weights] >= 0).all():
-                raise ValueError("Weights must be non-negative.")
+        if train:
+            if data[self.obs].isna().any():
+                raise ValueError(
+                    "Observations must not contain missing values."
+                )
+            if self.weights is not None:
+                if data[self.weights].isna().any():
+                    raise ValueError("Weights must not contain missing values.")
+                if not (data[self.weights] >= 0).all():
+                    raise ValueError("Weights must be non-negative.")
         if self.offset is not None:
             if data[self.offset].isna().any():
                 raise ValueError("Offset must not contain missing values.")
@@ -54,20 +67,23 @@ class Likelihood(ABC):
         train: bool = True,
         density: Series | None = None,
     ) -> None:
+        data = self._validate_data(data, train=train)
+        size = len(data)
+        self.data = {
+            "offset": jnp.zeros(size)
+            if self.offset is None
+            else jnp.asarray(data[self.offset]),
+            "mat": self.encode(data, kernel, density),
+        }
         if train:
-            data = self._validate_data(data)
             self.data["obs"] = jnp.asarray(data[self.obs])
-            if self.weights is not None:
-                self.data["weights"] = jnp.asarray(data[self.weights])
-            else:
-                self.data["weights"] = jnp.ones(len(data))
+            self.data["weights"] = (
+                jnp.ones(size)
+                if self.weights is None
+                else jnp.asarray(data[self.weights])
+            )
             self.data["orig_weights"] = jnp.asarray(data[self.weights])
-            self.data["trim_weights"] = jnp.ones(len(data))
-        if self.data["offset"] is not None:
-            self.data["offset"] = jnp.asarray(data[self.offset])
-        else:
-            self.data["offset"] = jnp.zeros(len(data))
-        self.data["mat"] = self.encode(data, kernel, density)
+            self.data["trim_weights"] = jnp.ones(size)
 
     def update_trim_weights(self, w: JAXArray) -> None:
         self.data["trim_weights"] = jnp.asarray(w)
@@ -76,7 +92,7 @@ class Likelihood(ABC):
         )
 
     def detach(self) -> None:
-        self.data.clear()
+        del self.data
 
     @staticmethod
     def encode_integral(data: DataFrame, kernel: KroneckerKernel) -> DataFrame:
@@ -114,7 +130,7 @@ class Likelihood(ABC):
         data: DataFrame,
         kernel: KroneckerKernel,
         density: Series | None = None,
-    ) -> JAXArray:
+    ) -> BCOO:
         shape = len(data), len(kernel)
         df = Likelihood.encode_integral(data, kernel)
 
@@ -179,10 +195,13 @@ class Likelihood(ABC):
 
 
 class BinomialLikelihood(Likelihood):
-    def _validate_data(self, data: DataFrame) -> DataFrame:
-        data = super()._validate_data(data)
-        if not ((data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()):
-            raise ValueError("Observations must be in [0, 1].")
+    def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
+        data = super()._validate_data(data, train=train)
+        if train:
+            if not (
+                (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
+            ):
+                raise ValueError("Observations must be in [0, 1].")
         return data
 
     @property
@@ -238,10 +257,11 @@ class GaussianLikelihood(Likelihood):
 
 
 class PoissonLikelihood(Likelihood):
-    def _validate_data(self, data: DataFrame) -> DataFrame:
-        data = super()._validate_data(data)
-        if not (data[self.obs] >= 0).all():
-            raise ValueError("Observations must be non-negative.")
+    def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
+        data = super()._validate_data(data, train=train)
+        if train:
+            if not (data[self.obs] >= 0).all():
+                raise ValueError("Observations must be non-negative.")
         return data
 
     @property
