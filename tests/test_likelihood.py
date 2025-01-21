@@ -11,7 +11,7 @@ def kernel() -> KroneckerKernel:
     return KroneckerKernel(
         [
             KernelComponent(
-                "age_mid",
+                ["age_mid"],
                 vectorize_kfunc(build_matern_three_half_kfunc(rho=8.0)),
             )
         ]

@@ -238,5 +238,5 @@ class KernelRegModel:
         else:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)
-        self.detach()
+            self.detach()
         return np.asarray(pred)

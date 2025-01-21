@@ -37,7 +37,7 @@ def model() -> KernelRegModel:
     kernel = KroneckerKernel(
         [
             KernelComponent(
-                "age_mid", vectorize_kfunc(build_matern_three_half_kfunc(8.0))
+                ["age_mid"], vectorize_kfunc(build_matern_three_half_kfunc(8.0))
             )
         ]
     )
