@@ -57,11 +57,21 @@ class KroneckerKernel:
 
     @property
     def span(self) -> DataFrame:
+        columns = list(
+            itertools.chain.from_iterable(
+                [dim.columns for dim in self.dimensions]
+            )
+        )
         span = DataFrame(
-            data=np.asarray(
-                list(itertools.product(*[dim.span for dim in self.dimensions])),
+            data=np.array(
+                [
+                    np.hstack(list(row))
+                    for row in itertools.product(
+                        *[dim.span for dim in self.dimensions]
+                    )
+                ]
             ),
-            columns=[dim.name for dim in self.dimensions],
+            columns=columns,
         )
         return span
 
