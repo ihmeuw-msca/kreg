@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from msca.optim.prox import proj_capped_simplex
+from memory_profiler import profile
 
 from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
@@ -78,6 +79,7 @@ class KernelRegModel:
         self.likelihood.detach()
         self.kernel.clear_matrices()
 
+    @profile(precision=4)
     def fit(
         self,
         data: DataFrame | None = None,
@@ -150,6 +152,7 @@ class KernelRegModel:
             self.detach()
         return self.x, self.solver_info
 
+    @profile(precision=4)
     def fit_trimming(
         self,
         data: DataFrame,
@@ -232,14 +235,10 @@ class KernelRegModel:
             predict_rows = jax.vmap(jax.jit(predict_row))
             y = predict_rows(*rows)
             offset = data[self.likelihood.offset].to_numpy()
-            print(offset.shape)
-            print(y.shape)
             pred = self.likelihood.inv_link(offset + y.ravel())
-            print(pred.shape)
             self.kernel.clear_matrices()
         else:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)
             self.detach()
-        import pdb; pdb.set_trace()
         return np.asarray(pred)
