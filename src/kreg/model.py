@@ -219,7 +219,6 @@ class KernelRegModel:
                 for kc in kernel_components
             ]
             inv_k_x = self.kernel.op_p @ x
-
             def predict_row(*row):
                 k_new_x = functools.reduce(
                     jnp.kron,
@@ -231,12 +230,16 @@ class KernelRegModel:
                 return jnp.dot(k_new_x, inv_k_x)
 
             predict_rows = jax.vmap(jax.jit(predict_row))
-            pred = self.likelihood.inv_link(
-                data[self.likelihood.offset].to_numpy()
-                + predict_rows(*rows).ravel()
-            )
+            y = predict_rows(*rows)
+            offset = data[self.likelihood.offset].to_numpy()
+            print(offset.shape)
+            print(y.shape)
+            pred = self.likelihood.inv_link(offset + y.ravel())
+            print(pred.shape)
+            self.kernel.clear_matrices()
         else:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)
             self.detach()
+        import pdb; pdb.set_trace()
         return np.asarray(pred)
