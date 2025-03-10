@@ -215,7 +215,7 @@ class KernelRegModel:
             self.kernel.attach(data)
             kernel_components = self.kernel.kernel_components
             rows = [
-                jnp.asarray(data[kc.dim_names].to_numpy())
+                jnp.asarray(data[kc.columns].to_numpy())
                 for kc in kernel_components
             ]
             inv_k_x = self.kernel.op_p @ x

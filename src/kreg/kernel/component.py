@@ -3,11 +3,7 @@ import itertools
 import jax.numpy as jnp
 
 from kreg.kernel.dimension import Dimension
-from kreg.typing import (
-    DataFrame,
-    JAXArray,
-    KernelFunction,
-)
+from kreg.typing import DataFrame, JAXArray, KernelFunction
 
 DimensionConfig = str | dict
 
@@ -59,10 +55,15 @@ class KernelComponent:
         return len(self.span)
 
     @property
-    def dim_names(self) -> str | list[str]:
-        if isinstance(self.dimensions, list):
-            return [dim.name for dim in self.dimensions]
-        return self.dimensions.name
+    def dim_names(self) -> list[str]:
+        return [dim.name for dim in self.dimensions]
+
+    @property
+    def columns(self) -> list[str]:
+        columns = []
+        for dim in self.dimensions:
+            columns.extend(dim.columns)
+        return columns
 
     def set_span(self, data: DataFrame) -> None:
         """This function will only get triggered if the span has not been set."""
