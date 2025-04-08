@@ -9,7 +9,8 @@ from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
 from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
 from kreg.solver.newton import NewtonCG, NewtonDirect
-from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
+from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series, Optional, Union
+from kreg.utils import memory_profiled, logger
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -64,51 +65,63 @@ class KernelRegModel:
             + self.lam_ridge * jnp.eye(len(x))
         )
 
+    @memory_profiled
     def attach(
         self,
         data: DataFrame,
-        data_span: DataFrame | None = None,
-        density: Series | None = None,
+        data_span: Optional[DataFrame] = None,
+        density: Optional[Series] = None,
         train: bool = True,
     ) -> None:
+        logger.debug(f"Attaching data with shape {data.shape}, train={train}")
         self.kernel.attach(data if data_span is None else data_span)
         self.likelihood.attach(data, self.kernel, train=train, density=density)
 
+    @memory_profiled
     def detach(self) -> None:
+        logger.debug("Detaching model data")
         self.likelihood.detach()
         self.kernel.clear_matrices()
 
+    @memory_profiled
     def fit(
         self,
-        data: DataFrame | None = None,
-        data_span: DataFrame | None = None,
-        density: Series | None = None,
-        x0: JAXArray | None = None,
+        data: Optional[DataFrame] = None,
+        data_span: Optional[DataFrame] = None,
+        density: Optional[Series] = None,
+        x0: Optional[JAXArray] = None,
         gtol: float = 1e-3,
         max_iter: int = 25,
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 25,
         disable_tqdm: bool = False,
-        lam: float | None = None,
+        lam: Optional[float] = None,
         detach: bool = True,
         use_direct=False,
         grad_decrease=0.5,
-    ) -> tuple[JAXArray, dict]:
+    ) -> "tuple[JAXArray, dict]":
         if lam is not None:
             self.lam = lam
         # attach dataframe
         if data is not None:
+            logger.info(f"Fitting model with data shape: {data.shape}")
+            if data_span is not None:
+                logger.info(f"Using data_span with shape: {data_span.shape}")
             self.attach(data, data_span=data_span, density=density, train=True)
+        else:
+            logger.info("Fitting model with pre-attached data")
 
         if x0 is None:
             if hasattr(self, "x"):
                 x0 = self.x
             else:
                 x0 = jnp.zeros(len(self.kernel))
+                logger.debug(f"Initialized x0 with zeros, shape: {x0.shape}")
 
-        solver: NewtonDirect | NewtonCG
+        solver: Union[NewtonDirect, NewtonCG]
         if use_direct:
+            logger.info("Using direct Newton solver")
             solver = NewtonDirect(
                 jax.jit(self.objective),
                 jax.jit(self.gradient),
@@ -122,6 +135,7 @@ class KernelRegModel:
                 grad_decrease=grad_decrease,
             )
         else:
+            logger.info(f"Using Newton-CG solver with nystroem_rank={nystroem_rank}")
             precon_builder: PreconBuilder
             if nystroem_rank > 0:
                 precon_builder = NystroemPreconBuilder(
@@ -145,21 +159,24 @@ class KernelRegModel:
                 disable_tqdm=disable_tqdm,
                 grad_decrease=grad_decrease,
             )
+        
+        logger.debug(f"Fit complete, converged: {self.solver_info.get('converged', False)}")
 
         if detach:
             self.detach()
         return self.x, self.solver_info
 
+    @memory_profiled
     def fit_trimming(
         self,
         data: DataFrame,
-        data_span: DataFrame | None = None,
-        density: Series | None = None,
+        data_span: Optional[DataFrame] = None,
+        density: Optional[Series] = None,
         trim_steps: int = 10,
         step_size: float = 10.0,
         inlier_pct: float = 0.95,
-        solver_options: dict | None = None,
-    ) -> tuple[JAXArray, JAXArray]:
+        solver_options: Optional[dict] = None,
+    ) -> "tuple[JAXArray, JAXArray]":
         if trim_steps < 2:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
@@ -168,6 +185,7 @@ class KernelRegModel:
             solver_options = {}
         solver_options["detach"] = False
 
+        logger.info(f"Fitting with trimming: steps={trim_steps}, inlier_pct={inlier_pct}")
         y = self.fit(
             data, data_span=data_span, density=density, **solver_options
         )[0]
@@ -178,6 +196,7 @@ class KernelRegModel:
             success = False
             while (counter < trim_steps) and (not success):
                 counter += 1
+                logger.debug(f"Trimming step {counter}/{trim_steps}")
                 nll_terms = self.likelihood.nll_terms(y)
                 trim_weights = proj_capped_simplex(
                     self.likelihood.data["trim_weights"]
@@ -192,6 +211,7 @@ class KernelRegModel:
                     | jnp.isclose(self.likelihood.data["trim_weights"], 1.0)
                 )
             if not success:
+                logger.info(f"Trimming did not converge after {trim_steps} steps, forcing final trimming")
                 trim_weights = self.likelihood.data["trim_weights"]
                 sort_indices = jnp.argsort(trim_weights)
                 trim_weights = trim_weights.at[sort_indices[-num_inliers:]].set(
@@ -204,12 +224,15 @@ class KernelRegModel:
 
         trim_weights = self.likelihood.data["trim_weights"]
         self.detach()
+        logger.info(f"Trimming complete, kept {int(jnp.sum(trim_weights))} of {len(trim_weights)} observations")
 
         return y, trim_weights
 
+    @memory_profiled
     def predict(
-        self, data, x: NDArray | None = None, from_kernel: bool = False
+        self, data, x: Optional[NDArray] = None, from_kernel: bool = False
     ) -> NDArray:
+        logger.debug(f"Making predictions with data shape {data.shape}, from_kernel={from_kernel}")
         x = self.x if x is None else x
         if from_kernel:
             self.kernel.attach(data)
@@ -239,4 +262,5 @@ class KernelRegModel:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)
             self.detach()
+        logger.debug(f"Predictions complete, shape: {pred.shape}")
         return np.asarray(pred)
