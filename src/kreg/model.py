@@ -25,7 +25,7 @@ class KernelRegModel:
     ) -> None:
         """
         Initialize a Kernel Regression Model.
-        
+
         Parameters
         ----------
         kernel : KroneckerKernel
@@ -62,12 +62,12 @@ class KernelRegModel:
     def hessian(self, x: JAXArray) -> Callable:
         """
         Return a function that computes the Hessian-vector product.
-        
+
         Parameters
         ----------
         x : JAXArray
             The parameter vector
-            
+
         Returns
         -------
         Callable
@@ -101,7 +101,7 @@ class KernelRegModel:
     ) -> None:
         """
         Attach data to the model for computation.
-        
+
         Parameters
         ----------
         data : DataFrame
@@ -140,7 +140,7 @@ class KernelRegModel:
     ) -> tuple[JAXArray, dict]:
         """
         Fit the model to data.
-        
+
         Parameters
         ----------
         data : DataFrame, optional
@@ -171,7 +171,7 @@ class KernelRegModel:
             Whether to use direct solver instead of CG, by default False
         grad_decrease : float, optional
             Required gradient decrease factor, by default 0.5
-            
+
         Returns
         -------
         tuple[JAXArray, dict]
@@ -244,7 +244,7 @@ class KernelRegModel:
     ) -> tuple[JAXArray, JAXArray]:
         """
         Fit the model with trimming to handle outliers.
-        
+
         Parameters
         ----------
         data : DataFrame
@@ -261,7 +261,7 @@ class KernelRegModel:
             Percentage of inliers to keep (0.0-1.0), by default 0.95
         solver_options : dict, optional
             Additional options for the solver, by default None
-            
+
         Returns
         -------
         tuple[JAXArray, JAXArray]
@@ -315,14 +315,14 @@ class KernelRegModel:
         return y, trim_weights
 
     def predict(
-        self, 
-        data: DataFrame, 
-        x: NDArray | None = None, 
-        from_kernel: bool = False
+        self,
+        data: DataFrame,
+        x: NDArray | None = None,
+        from_kernel: bool = False,
     ) -> NDArray:
         """
         Make predictions for new data.
-        
+
         Parameters
         ----------
         data : DataFrame
@@ -331,7 +331,7 @@ class KernelRegModel:
             Parameter vector to use for prediction, by default None
         from_kernel : bool, optional
             Whether to use kernel matrix for prediction, by default False
-            
+
         Returns
         -------
         NDArray
@@ -346,7 +346,7 @@ class KernelRegModel:
                 for kc in kernel_components
             ]
             inv_k_x = self.kernel.op_p @ x
-            
+
             def predict_row(*row):
                 k_new_x = functools.reduce(
                     jnp.kron,

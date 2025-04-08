@@ -72,10 +72,14 @@ class NewtonCG:
                     grad_decrease=grad_decrease,
                 )
             except RuntimeError as e:
-                warnings.warn(f"Line search failed on iteration {i}, achieved gnorm = {jnp.linalg.vector_norm(g)}: {str(e)}")
+                warnings.warn(
+                    f"Line search failed on iteration {i}, achieved gnorm = {jnp.linalg.vector_norm(g)}: {str(e)}"
+                )
                 if jnp.linalg.vector_norm(g) <= gtol * 10:
                     converged = True
-                    conv_crit = "approximate_convergence_after_line_search_failure"
+                    conv_crit = (
+                        "approximate_convergence_after_line_search_failure"
+                    )
                     break
                 else:
                     break
@@ -84,7 +88,9 @@ class NewtonCG:
             x = x - step * p
         if not converged:
             conv_crit = "Did not converge"
-            warnings.warn(f"Convergence wasn't achieved in {max_iter} iterations")
+            warnings.warn(
+                f"Convergence wasn't achieved in {max_iter} iterations"
+            )
 
         val, g = self.objective(x), self.gradient(x)
         loss_vals.append(val)
