@@ -23,6 +23,20 @@ class KernelRegModel:
         lam: float,
         lam_ridge: float = 0.0,
     ) -> None:
+        """
+        Initialize a Kernel Regression Model.
+
+        Parameters
+        ----------
+        kernel : KroneckerKernel
+            The Kronecker kernel to use for regression
+        likelihood : Likelihood
+            The likelihood model to use
+        lam : float
+            Regularization parameter for the kernel
+        lam_ridge : float, optional
+            Additional ridge regularization parameter, by default 0.0
+        """
         self.kernel = kernel
         self.likelihood = likelihood
         self.lam = lam
@@ -46,16 +60,30 @@ class KernelRegModel:
         )
 
     def hessian(self, x: JAXArray) -> Callable:
-        likli_hess = self.likelihood.hessian(x)
+        """
+        Return a function that computes the Hessian-vector product.
 
-        def op_hess(z: JAXArray) -> JAXArray:
+        Parameters
+        ----------
+        x : JAXArray
+            The parameter vector
+
+        Returns
+        -------
+        Callable
+            A function that computes the Hessian-vector product
+        """
+        likelihood_hessian = self.likelihood.hessian(x)
+
+        def hessian_vector_product(z: JAXArray) -> JAXArray:
+            """Compute the Hessian-vector product."""
             return (
-                likli_hess(z)
+                likelihood_hessian(z)
                 + self.lam * self.kernel.op_p @ z
                 + self.lam_ridge * z
             )
 
-        return op_hess
+        return hessian_vector_product
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
         return (
@@ -71,10 +99,25 @@ class KernelRegModel:
         density: Series | None = None,
         train: bool = True,
     ) -> None:
+        """
+        Attach data to the model for computation.
+
+        Parameters
+        ----------
+        data : DataFrame
+            The data for the likelihood
+        data_span : DataFrame, optional
+            The data for the kernel span, by default None
+        density : Series, optional
+            The density weights, by default None
+        train : bool, optional
+            Whether in training mode, by default True
+        """
         self.kernel.attach(data if data_span is None else data_span)
         self.likelihood.attach(data, self.kernel, train=train, density=density)
 
     def detach(self) -> None:
+        """Release resources by detaching data from the model."""
         self.likelihood.detach()
         self.kernel.clear_matrices()
 
@@ -92,9 +135,48 @@ class KernelRegModel:
         disable_tqdm: bool = False,
         lam: float | None = None,
         detach: bool = True,
-        use_direct=False,
-        grad_decrease=0.5,
+        use_direct: bool = False,
+        grad_decrease: float = 0.5,
     ) -> tuple[JAXArray, dict]:
+        """
+        Fit the model to data.
+
+        Parameters
+        ----------
+        data : DataFrame, optional
+            The data to fit, by default None
+        data_span : DataFrame, optional
+            The data for the kernel span, by default None
+        density : Series, optional
+            The density weights, by default None
+        x0 : JAXArray, optional
+            Initial parameter vector, by default None
+        gtol : float, optional
+            Gradient tolerance for convergence, by default 1e-3
+        max_iter : int, optional
+            Maximum number of iterations, by default 25
+        cg_maxiter : int, optional
+            Maximum CG iterations, by default 100
+        cg_maxiter_increment : int, optional
+            CG iteration increment per Newton step, by default 25
+        nystroem_rank : int, optional
+            Rank for Nyström approximation, by default 25
+        disable_tqdm : bool, optional
+            Whether to disable progress bar, by default False
+        lam : float, optional
+            Override regularization parameter, by default None
+        detach : bool, optional
+            Whether to detach data after fitting, by default True
+        use_direct : bool, optional
+            Whether to use direct solver instead of CG, by default False
+        grad_decrease : float, optional
+            Required gradient decrease factor, by default 0.5
+
+        Returns
+        -------
+        tuple[JAXArray, dict]
+            The fitted parameter vector and solver information
+        """
         if lam is not None:
             self.lam = lam
         # attach dataframe
@@ -160,6 +242,31 @@ class KernelRegModel:
         inlier_pct: float = 0.95,
         solver_options: dict | None = None,
     ) -> tuple[JAXArray, JAXArray]:
+        """
+        Fit the model with trimming to handle outliers.
+
+        Parameters
+        ----------
+        data : DataFrame
+            The data to fit
+        data_span : DataFrame, optional
+            The data for the kernel span, by default None
+        density : Series, optional
+            The density weights, by default None
+        trim_steps : int, optional
+            Number of trimming steps, by default 10
+        step_size : float, optional
+            Step size for trimming, by default 10.0
+        inlier_pct : float, optional
+            Percentage of inliers to keep (0.0-1.0), by default 0.95
+        solver_options : dict, optional
+            Additional options for the solver, by default None
+
+        Returns
+        -------
+        tuple[JAXArray, JAXArray]
+            The fitted parameter vector and trimming weights
+        """
         if trim_steps < 2:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
@@ -208,14 +315,34 @@ class KernelRegModel:
         return y, trim_weights
 
     def predict(
-        self, data, x: NDArray | None = None, from_kernel: bool = False
+        self,
+        data: DataFrame,
+        x: NDArray | None = None,
+        from_kernel: bool = False,
     ) -> NDArray:
+        """
+        Make predictions for new data.
+
+        Parameters
+        ----------
+        data : DataFrame
+            The data to predict for
+        x : NDArray, optional
+            Parameter vector to use for prediction, by default None
+        from_kernel : bool, optional
+            Whether to use kernel matrix for prediction, by default False
+
+        Returns
+        -------
+        NDArray
+            The predictions
+        """
         x = self.x if x is None else x
         if from_kernel:
             self.kernel.attach(data)
             kernel_components = self.kernel.kernel_components
             rows = [
-                jnp.asarray(data[kc.dim_names].to_numpy())
+                jnp.asarray(data[kc.columns].to_numpy())
                 for kc in kernel_components
             ]
             inv_k_x = self.kernel.op_p @ x
@@ -231,10 +358,10 @@ class KernelRegModel:
                 return jnp.dot(k_new_x, inv_k_x)
 
             predict_rows = jax.vmap(jax.jit(predict_row))
-            pred = self.likelihood.inv_link(
-                data[self.likelihood.offset].to_numpy()
-                + predict_rows(*rows).ravel()
-            )
+            y = predict_rows(*rows)
+            offset = data[self.likelihood.offset].to_numpy()
+            pred = self.likelihood.inv_link(offset + y.ravel())
+            self.kernel.clear_matrices()
         else:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)

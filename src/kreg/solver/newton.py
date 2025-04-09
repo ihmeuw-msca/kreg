@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from jax.scipy.linalg import solve
 from jax.scipy.sparse.linalg import cg
 from tqdm.auto import tqdm
+import warnings
 
 from kreg.solver.line_search import armijo_line_search
 from kreg.typing import Callable, JAXArray
@@ -61,19 +62,35 @@ class NewtonCG:
 
             newton_decrements.append(jnp.sqrt(jnp.dot(g, p)))
             # Hard coded line search
-            step, armijo_ratio, gradnorm_ratio = armijo_line_search(
-                x,
-                p,
-                g,
-                self.objective,
-                self.gradient,
-                grad_decrease=grad_decrease,
-            )
+            try:
+                step, armijo_ratio, gradnorm_ratio = armijo_line_search(
+                    x,
+                    p,
+                    g,
+                    self.objective,
+                    self.gradient,
+                    grad_decrease=grad_decrease,
+                )
+            except RuntimeError as e:
+                warnings.warn(
+                    f"Line search failed on iteration {i}, achieved gnorm = {jnp.linalg.vector_norm(g)}: {str(e)}"
+                )
+                if jnp.linalg.vector_norm(g) <= gtol * 10:
+                    converged = True
+                    conv_crit = (
+                        "approximate_convergence_after_line_search_failure"
+                    )
+                    break
+                else:
+                    break
+
             iterate_maxnorm_distances.append(jnp.max(jnp.abs(step * p)))
             x = x - step * p
         if not converged:
             conv_crit = "Did not converge"
-            print(f"Convergence wasn't achieved in {max_iter} iterations")
+            warnings.warn(
+                f"Convergence wasn't achieved in {max_iter} iterations"
+            )
 
         val, g = self.objective(x), self.gradient(x)
         loss_vals.append(val)
