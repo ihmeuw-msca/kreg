@@ -31,7 +31,7 @@ def armijo_line_search(
             )
         step *= shrinkage
         new_x = x - step * p
-        new_val = objective(new_x)
+        new_val, new_grad = objective(new_x), gradient(new_x)
     armijo_ratio = (val - new_val) / (step * jnp.dot(g, p))
 
     return step, armijo_ratio, (jnp.linalg.norm(new_grad) / jnp.linalg.norm(g))
