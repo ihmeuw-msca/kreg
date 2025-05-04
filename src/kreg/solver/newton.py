@@ -39,7 +39,6 @@ class NewtonCG:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         precon_build_freq: int = 10,
-        disable_tqdm=False,
         grad_decrease=0.25,
         verbose = True,
     ) -> tuple[JAXArray, dict]:
@@ -64,7 +63,7 @@ class NewtonCG:
                 armijo_rat = 0.
             )
 
-        for i in tqdm(range(max_iter), disable=disable_tqdm):
+        for i in range(max_iter):
             # update preconditioner
             if self.precon_builder is not None and i % precon_build_freq == 0:
                 precon = self.precon_builder(x)
