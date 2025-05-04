@@ -224,7 +224,6 @@ class KernelRegModel:
                 cg_maxiter=cg_maxiter,
                 cg_maxiter_increment=cg_maxiter_increment,
                 precon_build_freq=10,
-                disable_tqdm=disable_tqdm,
                 grad_decrease=grad_decrease,
             )
 
