@@ -85,6 +85,18 @@ class Likelihood(ABC):
             self.data["orig_weights"] = jnp.asarray(data[self.weights])
             self.data["trim_weights"] = jnp.ones(size)
 
+        @jax.jit
+        def mat_apply(x):
+            return self.data['mat']@x
+
+        @jax.jit
+        def mat_adj_apply(x):
+            return self.data['mat'].T@x
+
+        self.mat_apply = mat_apply
+        self.mat_adj_apply = mat_adj_apply
+
+
     def update_trim_weights(self, w: JAXArray) -> None:
         self.data["trim_weights"] = jnp.asarray(w)
         self.data["weights"] = (
@@ -160,7 +172,7 @@ class Likelihood(ABC):
         return Likelihood.integral_to_design_mat(df, shape)
 
     def get_lin_param(self, x: JAXArray) -> JAXArray:
-        return self.data["mat"] @ x + self.data["offset"]
+        return self.mat_apply(x) + self.data["offset"]
 
     def get_param(self, x: JAXArray) -> JAXArray:
         return self.inv_link(self.get_lin_param(x))
@@ -185,7 +197,7 @@ class Likelihood(ABC):
         diag = self.hessian_diag(x)
 
         def op_hess(x: JAXArray) -> JAXArray:
-            return self.data["mat"].T @ (diag * (self.data["mat"] @ x))
+            return self.mat_adj_apply(diag * (self.mat_apply(x)))
 
         return op_hess
 
@@ -221,10 +233,12 @@ class BinomialLikelihood(Likelihood):
         )
 
     def gradient(self, x: JAXArray) -> JAXArray:
-        z = jnp.exp(self.get_lin_param(x))
-        return self.data["mat"].T @ (
+        z = self.get_lin_param(x)
+        z = jnp.exp(z)
+        fz = (
             self.data["weights"] * (z / (1 + z) - self.data["obs"])
         )
+        return self.mat_adj_apply(fz)
 
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         z = jnp.exp(self.get_lin_param(x))
@@ -247,7 +261,7 @@ class GaussianLikelihood(Likelihood):
 
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.data["mat"].T @ (
+        return self.mat_adj_apply(
             self.data["weights"] * (y - self.data["obs"])
         )
 
@@ -278,7 +292,7 @@ class PoissonLikelihood(Likelihood):
 
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.data["mat"].T @ (
+        return self.mat_adj_apply(
             self.data["weights"] * (jnp.exp(y) - self.data["obs"])
         )
 
