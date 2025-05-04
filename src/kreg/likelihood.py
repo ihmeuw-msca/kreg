@@ -227,22 +227,23 @@ class BinomialLikelihood(Likelihood):
         )
 
     def objective(self, x: JAXArray) -> JAXArray:
-        y = self.get_lin_param(x)
+        z = self.get_lin_param(x)
         return self.data["weights"].dot(
-            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
-        )
+            jnp.logaddexp(0, z) - self.data["obs"] * z
+            )
 
     def gradient(self, x: JAXArray) -> JAXArray:
         z = self.get_lin_param(x)
-        z = jnp.exp(z)
+        sig_z = jax.scipy.special.expit(z)
         fz = (
-            self.data["weights"] * (z / (1 + z) - self.data["obs"])
+            self.data["weights"] * (sig_z - self.data["obs"])
         )
         return self.mat_adj_apply(fz)
 
     def hessian_diag(self, x: JAXArray) -> JAXArray:
-        z = jnp.exp(self.get_lin_param(x))
-        diag = self.data["weights"] * (z / ((1 + z) ** 2))
+        z = self.get_lin_param(x)
+        sig_z = expit(z)
+        diag = self.data["weights"] * sig_z * (1.0 - sig_z)
         return diag
 
 
