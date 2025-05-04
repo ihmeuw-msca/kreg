@@ -116,4 +116,5 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return len(self.span)
+        return np.prod(list(len(dim.span) for dim in self.dimensions))
+
