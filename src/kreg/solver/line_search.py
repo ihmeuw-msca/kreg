@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import jax
 
 from kreg.typing import Callable, JAXArray
 
@@ -37,53 +38,42 @@ def armijo_line_search(
     return step, armijo_ratio, (jnp.linalg.norm(new_grad) / jnp.linalg.norm(g))
 
 
-def armijo_line_search_other(
-    gradient: Callable,
-    x: JAXArray,
-    dx: JAXArray,
-    step_init: float = 1.0,
-    step_const: float = 0.01,
-    step_scale: float = 0.9,
-    step_lb: float = 1e-3,
-) -> float:
-    """Armijo line search.
+def build_armijo_linesearch(f,decrease_ratio=0.5,slope=0.05,max_iter = 25):
+    def armijo_linesearch(x, f_curr, d, g, t0=1.):
+        """
+        x: current parameters (pytree)
+        f_curr: f(x)
+        d: descent direction (pytree)
+        g: gradient at x (pytree)
+        t0: initial step size
+        a: Armijo constant
+        """
+        candidate = x - t0 * d#tree_add(x, tree_scale(d, -t0))
+        dec0 = f(candidate) - f_curr
+        pred_dec0 = -t0 * jnp.dot(d,g)#tree_dot(d, g)
+        
+        # The loop state: (iteration, t, current decrease, predicted decrease)
+        init_state = (0, t0, dec0, pred_dec0)
 
-    Parameters
-    ----------
-    x
-        A list a parameters, including x, s, and v, where s is the slackness
-        variable and v is the dual variable for the constraints.
-    dx
-        A list of direction for the parameters.
-    step_init
-        Initial step size, by default 1.0.
-    step_const
-        Constant for the line search condition, the larger the harder, by
-        default 0.01.
-    step_scale
-        Shrinkage factor for step size, by default 0.9.
-    step_lb
-        Lower bound of the step size when the step size is below this bound
-        the line search will be terminated.
+        def cond_fun(state):
+            i, t, dec, pred_dec = state
+            # Continue while we haven't satisfied the Armijo condition and haven't exceeded max_iter iterations.
+            not_enough_decrease = dec >= slope * pred_dec
+            return jnp.logical_and(i < max_iter, not_enough_decrease)
 
-    Returns
-    -------
-    float
-        The step size in the given direction.
+        def body_fun(state):
+            i, t, dec, pred_dec = state
+            t_new = decrease_ratio*t
+            candidate_new = x - t_new * d
+            dec_new = f(candidate_new) - f_curr
+            pred_dec_new = -t_new * jnp.dot(d,g)#tree_dot(d, g)
+            return (i + 1, t_new, dec_new, pred_dec_new)
 
-    """
-    step = step_init
-    x_next = x + step * dx
-    g_next = gradient(x_next)
-    gnorm_curr = jnp.max(jnp.abs(gradient(x)))
-    gnorm_next = jnp.max(jnp.abs(g_next))
-
-    while gnorm_next > (1 - step_const * step) * gnorm_curr:
-        if step * step_scale < step_lb:
-            break
-        step *= step_scale
-        x_next = x + step * dx
-        g_next = gradient(x_next)
-        gnorm_next = jnp.max(jnp.abs(g_next))
-
-    return step
+        # Run the while loop
+        i_final, t_final, dec_final, pred_dec_final = jax.lax.while_loop(
+            cond_fun, body_fun, init_state
+        )
+        armijo_rat_final = dec_final/pred_dec_final
+        candidate_final = x - t_final*d
+        return candidate_final, t_final,armijo_rat_final
+    return armijo_linesearch

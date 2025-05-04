@@ -3,10 +3,20 @@ from jax.scipy.linalg import solve
 from jax.scipy.sparse.linalg import cg
 from tqdm.auto import tqdm
 import warnings
+import jax
+import time
+from dataclasses import dataclass
 
-from kreg.solver.line_search import armijo_line_search
+from kreg.solver.line_search import armijo_line_search,build_armijo_linesearch
 from kreg.typing import Callable, JAXArray
+from kreg.solver.opt_logger import Logger
 
+
+@dataclass
+class OptimizationResult():
+    converged:bool
+    convergence_criterion:str
+    log:Logger
 
 class NewtonCG:
     def __init__(
@@ -31,49 +41,59 @@ class NewtonCG:
         precon_build_freq: int = 10,
         disable_tqdm=False,
         grad_decrease=0.25,
+        verbose = True,
     ) -> tuple[JAXArray, dict]:
-        loss_vals = []
-        grad_norms = []
-        newton_decrements = []
-        iterate_maxnorm_distances = []
+        start = time.time()
         converged = False
 
         x = x0.copy()
         precon = None
+        linesearch_dec = 0.01
+        linesearch = jax.jit(build_armijo_linesearch(self.objective,slope = 0.01))
+        opt_logger = Logger(verbose = verbose)
+
+        val, g, hess = self.objective(x), self.gradient(x), self.hessian(x)
+        opt_logger.log(
+                iter = 0,
+                obj_val = val,
+                gnorm_inf = jnp.max(jnp.abs(g)),
+                gnorm2 = jnp.linalg.norm(g),
+                Δx = 0.,
+                step = 0.,
+                time = time.time() - start,
+                armijo_rat = 0.
+            )
 
         for i in tqdm(range(max_iter), disable=disable_tqdm):
-            val, g, hess = self.objective(x), self.gradient(x), self.hessian(x)
-
-            # Check for convergence
-            if jnp.linalg.vector_norm(g) <= gtol:
-                converged = True
-                conv_crit = "grad_norm"
-                break
-
-            loss_vals.append(val)
-            grad_norms.append(jnp.linalg.vector_norm(g))
-
             # update preconditioner
             if self.precon_builder is not None and i % precon_build_freq == 0:
                 precon = self.precon_builder(x)
 
             cg_maxiter += cg_maxiter_increment
-            p, info = cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16)
+            p, info = jax.block_until_ready(cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16))
 
-            newton_decrements.append(jnp.sqrt(jnp.dot(g, p)))
-            # Hard coded line search
-            try:
-                step, armijo_ratio, gradnorm_ratio = armijo_line_search(
-                    x,
-                    p,
-                    g,
-                    self.objective,
-                    self.gradient,
-                    grad_decrease=grad_decrease,
-                )
-            except RuntimeError as e:
+            x, step,armijo_rat_final = jax.block_until_ready(linesearch(x, val, p, g, t0=1.))
+
+
+            #Calculate new vals
+            val, g, hess = self.objective(x), self.gradient(x), self.hessian(x)
+
+            #Log results
+            opt_logger.log(
+                iter = i+1,
+                obj_val = val,
+                gnorm_inf = jnp.max(jnp.abs(g)),
+                gnorm2 = jnp.linalg.norm(g),
+                Δx = jnp.max(jnp.abs(step * p)),
+                step = step,
+                time = time.time() - start,
+                armijo_rat = armijo_rat_final
+            )
+
+            #Check for failed linesearch
+            if armijo_rat_final<linesearch_dec:
                 warnings.warn(
-                    f"Line search failed on iteration {i}, achieved gnorm = {jnp.linalg.vector_norm(g)}: {str(e)}"
+                    f"Line search failed on iteration {i}, achieved gnorm = {jnp.linalg.vector_norm(g):.2f}"
                 )
                 if jnp.linalg.vector_norm(g) <= gtol * 10:
                     converged = True
@@ -84,30 +104,22 @@ class NewtonCG:
                 else:
                     break
 
-            iterate_maxnorm_distances.append(jnp.max(jnp.abs(step * p)))
-            x = x - step * p
+            if jnp.linalg.vector_norm(g) <= gtol:
+                converged = True
+                conv_crit = "grad_norm"
+                break
+
         if not converged:
             conv_crit = "Did not converge"
             warnings.warn(
                 f"Convergence wasn't achieved in {max_iter} iterations"
             )
 
-        val, g = self.objective(x), self.gradient(x)
-        loss_vals.append(val)
-        grad_norms.append(jnp.linalg.vector_norm(g))
-
-        loss_vals = jnp.array(loss_vals)
-        grad_norms = jnp.array(grad_norms)
-        newton_decrements = jnp.array(newton_decrements)
-        iterate_maxnorm_distances = jnp.array(iterate_maxnorm_distances)
-        convergence_data = {
-            "loss_vals": loss_vals,
-            "gnorms": grad_norms,
-            "converged": converged,
-            "convergence_criterion": conv_crit,
-            "newton_decrements": newton_decrements,
-            "iterate_maxnorm_distances": iterate_maxnorm_distances,
-        }
+        convergence_data = OptimizationResult(
+            converged = converged,
+            convergence_criterion = conv_crit,
+            log = opt_logger
+        )
 
         return x, convergence_data
 
