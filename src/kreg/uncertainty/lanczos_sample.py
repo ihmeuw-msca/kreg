@@ -9,6 +9,7 @@ def get_PC_inv_rootH(
     PC_H_apply: Callable,
     rootpc_apply: Callable,
     max_order=50,
+    reortho = 'full'
 ) -> Callable:
     """Gets function to apply rootpc @ (rootpc@H@rootpc)^(-1/2)
     in order to sample from N(0,H^-1)
@@ -32,7 +33,7 @@ def get_PC_inv_rootH(
     def inv_sqrt(x):
         return 1 / jnp.sqrt(x)
 
-    alg_tridiag_sym = tridiag_sym(max_order)
+    alg_tridiag_sym = tridiag_sym(max_order,reortho = reortho)
     dense_funm = dense_funm_sym_eigh(inv_sqrt)
     matfun_vec = funm_lanczos_sym(dense_funm, alg_tridiag_sym)
 
