@@ -9,6 +9,7 @@ from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
 from kreg.typing import Callable, DataFrame, JAXArray, Series
+from jax.scipy.special import xlogy
 
 
 class LikelihoodData(TypedDict):
@@ -230,6 +231,58 @@ class BinomialLikelihood(Likelihood):
         z = self.get_lin_param(x)
         return self.data["weights"].dot(
             jnp.logaddexp(0, z) - self.data["obs"] * z
+            )
+
+    def gradient(self, x: JAXArray) -> JAXArray:
+        z = self.get_lin_param(x)
+        sig_z = jax.scipy.special.expit(z)
+        fz = (
+            self.data["weights"] * (sig_z - self.data["obs"])
+        )
+        return self.mat_adj_apply(fz)
+
+    def hessian_diag(self, x: JAXArray) -> JAXArray:
+        z = self.get_lin_param(x)
+        sig_z = expit(z)
+        diag = self.data["weights"] * sig_z * (1.0 - sig_z)
+        return diag
+
+class ZeroedBinomialLikelihood(Likelihood):
+    def __init__(
+        self, obs: str, weights: str | None = None, offset: str | None = None
+    ) -> None:
+        self.obs = obs
+        self.weights = weights
+        self.offset = offset
+
+        self.data: LikelihoodData
+        #This one doesn't contain weights, weights come in when we calculate 
+        #nll_terms and objective
+        self.saturated_loglik = (xlogy(obs,obs) + xlogy(1-obs,1-obs))
+
+    def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
+        data = super()._validate_data(data, train=train)
+        if train:
+            if not (
+                (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
+            ):
+                raise ValueError("Observations must be in [0, 1].")
+        return data
+
+    @property
+    def inv_link(self) -> Callable:
+        return expit
+
+    def nll_terms(self, x: JAXArray) -> JAXArray:
+        y = self.get_lin_param(x)
+        return self.data["weights"] * (
+            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y + self.saturated_loglik
+        )
+
+    def objective(self, x: JAXArray) -> JAXArray:
+        z = self.get_lin_param(x)
+        return self.data["weights"].dot(
+            jnp.logaddexp(0, z) - self.data["obs"] * z + self.saturated_loglik
             )
 
     def gradient(self, x: JAXArray) -> JAXArray:
