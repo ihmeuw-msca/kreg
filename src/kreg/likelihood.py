@@ -6,10 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental.sparse import BCOO
+from jax.scipy.special import xlogy
 
 from kreg.kernel import KroneckerKernel
 from kreg.typing import Callable, DataFrame, JAXArray, Series
-from jax.scipy.special import xlogy
 
 
 class LikelihoodData(TypedDict):
@@ -88,15 +88,14 @@ class Likelihood(ABC):
 
         @jax.jit
         def mat_apply(x):
-            return self.data['mat']@x
+            return self.data["mat"] @ x
 
         @jax.jit
         def mat_adj_apply(x):
-            return self.data['mat'].T@x
+            return self.data["mat"].T @ x
 
         self.mat_apply = mat_apply
         self.mat_adj_apply = mat_adj_apply
-
 
     def update_trim_weights(self, w: JAXArray) -> None:
         self.data["trim_weights"] = jnp.asarray(w)
@@ -222,75 +221,21 @@ class BinomialLikelihood(Likelihood):
         return expit
 
     def nll_terms(self, x: JAXArray) -> JAXArray:
-        y = self.get_lin_param(x)
-        return self.data["weights"] * (
-            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y
+        z = self.get_lin_param(x)
+        t = jnp.logaddexp(0, z) - self.data["obs"] * z
+        t_min = -(
+            xlogy(self.data["obs"], self.data["obs"])
+            + xlogy(1 - self.data["obs"], 1 - self.data["obs"])
         )
+        return self.data["weights"] * (t - t_min)
 
     def objective(self, x: JAXArray) -> JAXArray:
-        z = self.get_lin_param(x)
-        return self.data["weights"].dot(
-            jnp.logaddexp(0, z) - self.data["obs"] * z
-            )
+        return self.nll_terms(x).sum()
 
     def gradient(self, x: JAXArray) -> JAXArray:
         z = self.get_lin_param(x)
         sig_z = jax.scipy.special.expit(z)
-        fz = (
-            self.data["weights"] * (sig_z - self.data["obs"])
-        )
-        return self.mat_adj_apply(fz)
-
-    def hessian_diag(self, x: JAXArray) -> JAXArray:
-        z = self.get_lin_param(x)
-        sig_z = expit(z)
-        diag = self.data["weights"] * sig_z * (1.0 - sig_z)
-        return diag
-
-class ZeroedBinomialLikelihood(Likelihood):
-    def __init__(
-        self, obs: str, weights: str | None = None, offset: str | None = None
-    ) -> None:
-        self.obs = obs
-        self.weights = weights
-        self.offset = offset
-
-        self.data: LikelihoodData
-        #This one doesn't contain weights, weights come in when we calculate 
-        #nll_terms and objective
-        self.saturated_loglik = (xlogy(obs,obs) + xlogy(1-obs,1-obs))
-
-    def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
-        data = super()._validate_data(data, train=train)
-        if train:
-            if not (
-                (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
-            ):
-                raise ValueError("Observations must be in [0, 1].")
-        return data
-
-    @property
-    def inv_link(self) -> Callable:
-        return expit
-
-    def nll_terms(self, x: JAXArray) -> JAXArray:
-        y = self.get_lin_param(x)
-        return self.data["weights"] * (
-            jnp.log(1 + jnp.exp(-y)) + (1 - self.data["obs"]) * y + self.saturated_loglik
-        )
-
-    def objective(self, x: JAXArray) -> JAXArray:
-        z = self.get_lin_param(x)
-        return self.data["weights"].dot(
-            jnp.logaddexp(0, z) - self.data["obs"] * z + self.saturated_loglik
-            )
-
-    def gradient(self, x: JAXArray) -> JAXArray:
-        z = self.get_lin_param(x)
-        sig_z = jax.scipy.special.expit(z)
-        fz = (
-            self.data["weights"] * (sig_z - self.data["obs"])
-        )
+        fz = self.data["weights"] * (sig_z - self.data["obs"])
         return self.mat_adj_apply(fz)
 
     def hessian_diag(self, x: JAXArray) -> JAXArray:
@@ -310,14 +255,11 @@ class GaussianLikelihood(Likelihood):
         return 0.5 * self.data["weights"] * (self.data["obs"] - y) ** 2
 
     def objective(self, x: JAXArray) -> JAXArray:
-        y = self.get_lin_param(x)
-        return 0.5 * self.data["weights"].dot((self.data["obs"] - y) ** 2)
+        return self.nll_terms(x).sum()
 
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.mat_adj_apply(
-            self.data["weights"] * (y - self.data["obs"])
-        )
+        return self.mat_adj_apply(self.data["weights"] * (y - self.data["obs"]))
 
     def hessian_diag(self, x: JAXArray) -> JAXArray:
         diag = self.data["weights"]
@@ -338,11 +280,12 @@ class PoissonLikelihood(Likelihood):
 
     def nll_terms(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
-        return self.data["weights"] * (jnp.exp(y) - self.data["obs"] * y)
+        t = jnp.exp(y) - self.data["obs"] * y
+        t_min = self.data["obs"] - xlogy(self.data["obs"], self.data["obs"])
+        return self.data["weights"] * (t - t_min)
 
     def objective(self, x: JAXArray) -> JAXArray:
-        y = self.get_lin_param(x)
-        return self.data["weights"].dot(jnp.exp(y) - self.data["obs"] * y)
+        return self.nll_terms(x).sum()
 
     def gradient(self, x: JAXArray) -> JAXArray:
         y = self.get_lin_param(x)
