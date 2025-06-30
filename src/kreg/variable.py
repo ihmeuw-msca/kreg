@@ -19,6 +19,12 @@ class Variable:
     def size(self) -> int:
         return 1 if self.kernel is None else len(self.kernel)
 
+    @property
+    def identifier(self) -> str:
+        if self.kernel is None:
+            return self.name
+        return self.name + "/" + self.kernel.identifier
+
     def attach(self, data: pd.DataFrame) -> None:
         if self.kernel is not None:
             self.kernel.attach(data)
