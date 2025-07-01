@@ -20,8 +20,8 @@ class KernelRegModel:
         self,
         variables: list[Variable],
         likelihood: Likelihood,
-        lam: float,
-        lam_ridge: float = 0.0,
+        lam: float | dict[str, float],
+        lam_ridge: float | dict[str, float] = 0.0,
     ) -> None:
         """
         Initialize a Kernel Regression Model.
@@ -40,52 +40,69 @@ class KernelRegModel:
         """
         self.variables = variables
         self.likelihood = likelihood
+        if not isinstance(lam, dict):
+            lam = {v.identifier: lam for v in self.variables}
+        if not all(v.identifier in lam for v in self.variables):
+            raise ValueError(
+                "Please provide a single lam for all variable or lam for all specific variables"
+            )
         self.lam = lam
+        if not isinstance(lam_ridge, dict):
+            lam_ridge = {v.identifier: lam_ridge for v in self.variables}
+        for v in self.variables:
+            if v.identifier not in lam_ridge:
+                lam_ridge[v.identifier] = 0.0
         self.lam_ridge = lam_ridge
 
         self.x: JAXArray
         self.solver_info: OptimizationResult
 
-    def objective_kernel(self, x: JAXArray) -> JAXArray:
+    def objective_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, 0.0
         for v in self.variables:
             x_sub = x[start : start + v.size]
+            lam = self.lam[v.identifier]
+            lam_ridge = self.lam_ridge[v.identifier]
             if v.kernel is not None:
-                val += 0.5 * self.lam * x_sub.T @ v.kernel.op_p @ x_sub
-            val += 0.5 * self.lam_ridge * x_sub.T @ x_sub
+                val += 0.5 * lam * x_sub.T @ v.kernel.op_p @ x_sub
+            val += 0.5 * lam_ridge * x_sub.T @ x_sub
             start += v.size
         return val
 
-    def gradient_kernel(self, x: JAXArray) -> JAXArray:
+    def gradient_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, []
         for v in self.variables:
             x_sub = x[start : start + v.size]
-            val_sub = self.lam_ridge * x_sub
+            lam = self.lam[v.identifier]
+            lam_ridge = self.lam_ridge[v.identifier]
+            val_sub = lam_ridge * x_sub
             if v.kernel is not None:
-                val_sub += self.lam * v.kernel.op_p @ x_sub
+                val_sub += lam * v.kernel.op_p @ x_sub
             val.append(val_sub)
             start += v.size
         return jnp.hstack(val)
 
-    def hessian_kernel_op(self, x: JAXArray) -> JAXArray:
-        return self.gradient_kernel(x)
+    def hessian_prior_op(self, x: JAXArray) -> JAXArray:
+        return self.gradient_prior(x)
 
     @functools.cache
-    def hessian_kernel_matrix(self) -> JAXArray:
+    def hessian_prior_matrix(self) -> JAXArray:
         size, mats = 0, []
         for v in self.variables:
+            lam = self.lam[v.identifier]
+            lam_ridge = self.lam_ridge[v.identifier]
             if v.kernel is None:
                 mats.append(jnp.zeros((1, 1)))
             else:
-                mats.append(self.lam * v.kernel.op_p.to_array())
+                mats.append(lam * v.kernel.op_p.to_array())
             size += v.size
-        return block_diag(*mats) + self.lam_ridge * jnp.eye(size)
+        return block_diag(*mats) + lam_ridge * jnp.eye(size)
 
     def objective(self, x: JAXArray) -> JAXArray:
-        return self.likelihood.objective(x) + self.objective_kernel(x)
+        return self.likelihood.objective(x) + self.objective_prior(x)
 
     def gradient(self, x: JAXArray) -> JAXArray:
-        return self.likelihood.gradient(x) + self.gradient_kernel(x)
+        return self.likelihood.gradient(x) + self.gradient_prior(x)
 
     def hessian(self, x: JAXArray) -> Callable:
         """
@@ -106,12 +123,12 @@ class KernelRegModel:
 
         def hessian_vector_product(z: JAXArray) -> JAXArray:
             """Compute the Hessian-vector product."""
-            return likelihood_hessian(z) + self.hessian_kernel_op(z)
+            return likelihood_hessian(z) + self.hessian_prior_op(z)
 
         return hessian_vector_product
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
-        return self.likelihood.hessian_matrix(x) + self.hessian_kernel_matrix()
+        return self.likelihood.hessian_matrix(x) + self.hessian_prior_matrix()
 
     def attach(
         self,
@@ -158,7 +175,7 @@ class KernelRegModel:
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
         nystroem_rank: int = 0,
-        lam: float | None = None,
+        lam: float | dict[str, float] | None = None,
         detach: bool = True,
         use_direct: bool = False,
         grad_decrease: float = 0.5,
@@ -205,7 +222,11 @@ class KernelRegModel:
 
         """
         if lam is not None:
-            self.lam = lam
+            if not isinstance(lam, dict):
+                self.lam = {v.identifier: lam for v in self.variables}
+            else:
+                for key, val in lam.items():
+                    self.lam[key] = val
         # attach dataframe
         if data is not None:
             self.attach(data, data_span=data_span, density=density, train=True)
