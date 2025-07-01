@@ -49,7 +49,7 @@ class KernelRegModel:
     def objective_kernel(self, x: JAXArray) -> JAXArray:
         start, val = 0, 0.0
         for v in self.variables:
-            x_sub = x[start : v.size]
+            x_sub = x[start : start + v.size]
             if v.kernel is not None:
                 val += 0.5 * self.lam * x_sub.T @ v.kernel.op_p @ x_sub
             val += 0.5 * self.lam_ridge * x_sub.T @ x_sub
@@ -59,7 +59,7 @@ class KernelRegModel:
     def gradient_kernel(self, x: JAXArray) -> JAXArray:
         start, val = 0, []
         for v in self.variables:
-            x_sub = x[start : v.size]
+            x_sub = x[start : start + v.size]
             val_sub = self.lam_ridge * x_sub
             if v.kernel is not None:
                 val_sub += self.lam * v.kernel.op_p @ x_sub
