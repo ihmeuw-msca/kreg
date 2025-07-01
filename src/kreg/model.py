@@ -3,13 +3,13 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.scipy.linalg import block_diag
 from msca.optim.prox import proj_capped_simplex
 
-from kreg.kernel.kron_kernel import KroneckerKernel
 from kreg.likelihood import Likelihood
-from kreg.precon import NystroemPreconBuilder, PlainPreconBuilder, PreconBuilder
-from kreg.solver.newton import NewtonCG, NewtonDirect
+from kreg.solver.newton import NewtonCG, NewtonDirect, OptimizationResult
 from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
+from kreg.variable import Variable
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
@@ -18,7 +18,7 @@ jax.config.update("jax_enable_x64", True)
 class KernelRegModel:
     def __init__(
         self,
-        kernel: KroneckerKernel,
+        variables: list[Variable],
         likelihood: Likelihood,
         lam: float,
         lam_ridge: float = 0.0,
@@ -36,28 +36,56 @@ class KernelRegModel:
             Regularization parameter for the kernel
         lam_ridge : float, optional
             Additional ridge regularization parameter, by default 0.0
+
         """
-        self.kernel = kernel
+        self.variables = variables
         self.likelihood = likelihood
         self.lam = lam
         self.lam_ridge = lam_ridge
 
         self.x: JAXArray
-        self.solver_info: dict
+        self.solver_info: OptimizationResult
+
+    def objective_kernel(self, x: JAXArray) -> JAXArray:
+        start, val = 0, 0.0
+        for v in self.variables:
+            x_sub = x[start : v.size]
+            if v.kernel is not None:
+                val += 0.5 * self.lam * x_sub.T @ v.kernel.op_p @ x_sub
+            val += 0.5 * self.lam_ridge * x_sub.T @ x_sub
+            start += v.size
+        return val
+
+    def gradient_kernel(self, x: JAXArray) -> JAXArray:
+        start, val = 0, []
+        for v in self.variables:
+            x_sub = x[start : v.size]
+            val_sub = self.lam_ridge * x_sub
+            if v.kernel is not None:
+                val_sub += self.lam * v.kernel.op_p @ x_sub
+            val.append(val_sub)
+            start += v.size
+        return jnp.hstack(val)
+
+    def hessian_kernel_op(self, x: JAXArray) -> JAXArray:
+        return self.gradient_kernel(x)
+
+    @functools.cache
+    def hessian_kernel_matrix(self) -> JAXArray:
+        size, mats = 0, []
+        for v in self.variables:
+            if v.kernel is None:
+                mats.append(jnp.zeros((1, 1)))
+            else:
+                mats.append(self.lam * v.kernel.op_p.to_array())
+            size += v.size
+        return block_diag(*mats) + self.lam_ridge * jnp.eye(size)
 
     def objective(self, x: JAXArray) -> JAXArray:
-        return (
-            self.likelihood.objective(x)
-            + 0.5 * self.lam * x.T @ self.kernel.op_p @ x
-            + 0.5 * self.lam_ridge * x.T @ x
-        )
+        return self.likelihood.objective(x) + self.objective_kernel(x)
 
     def gradient(self, x: JAXArray) -> JAXArray:
-        return (
-            self.likelihood.gradient(x)
-            + self.lam * self.kernel.op_p @ x
-            + self.lam_ridge * x
-        )
+        return self.likelihood.gradient(x) + self.gradient_kernel(x)
 
     def hessian(self, x: JAXArray) -> Callable:
         """
@@ -72,25 +100,18 @@ class KernelRegModel:
         -------
         Callable
             A function that computes the Hessian-vector product
+
         """
         likelihood_hessian = self.likelihood.hessian(x)
 
         def hessian_vector_product(z: JAXArray) -> JAXArray:
             """Compute the Hessian-vector product."""
-            return (
-                likelihood_hessian(z)
-                + self.lam * self.kernel.op_p @ z
-                + self.lam_ridge * z
-            )
+            return likelihood_hessian(z) + self.hessian_kernel_op(z)
 
         return hessian_vector_product
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
-        return (
-            self.likelihood.hessian_matrix(x)
-            + self.lam * self.kernel.op_p.to_array()
-            + self.lam_ridge * jnp.eye(len(x))
-        )
+        return self.likelihood.hessian_matrix(x) + self.hessian_kernel_matrix()
 
     def attach(
         self,
@@ -112,14 +133,19 @@ class KernelRegModel:
             The density weights, by default None
         train : bool, optional
             Whether in training mode, by default True
+
         """
-        self.kernel.attach(data if data_span is None else data_span)
-        self.likelihood.attach(data, self.kernel, train=train, density=density)
+        for v in self.variables:
+            v.attach(data if data_span is None else data_span)
+        self.likelihood.attach(
+            data, self.variables, train=train, density=density
+        )
 
     def detach(self) -> None:
         """Release resources by detaching data from the model."""
         self.likelihood.detach()
-        self.kernel.clear_matrices()
+        for v in self.variables:
+            v.clear_matrices()
 
     def fit(
         self,
@@ -131,51 +157,52 @@ class KernelRegModel:
         max_iter: int = 25,
         cg_maxiter: int = 100,
         cg_maxiter_increment: int = 25,
-        nystroem_rank: int = 25,
-        disable_tqdm: bool = False,
+        nystroem_rank: int = 0,
         lam: float | None = None,
         detach: bool = True,
         use_direct: bool = False,
         grad_decrease: float = 0.5,
-    ) -> tuple[JAXArray, dict]:
+        verbose: bool = True,
+    ) -> tuple[JAXArray, OptimizationResult]:
         """
         Fit the model to data.
 
         Parameters
         ----------
-        data : DataFrame, optional
+        data
             The data to fit, by default None
-        data_span : DataFrame, optional
+        data_span
             The data for the kernel span, by default None
-        density : Series, optional
+        density
             The density weights, by default None
-        x0 : JAXArray, optional
+        x0
             Initial parameter vector, by default None
-        gtol : float, optional
+        gtol
             Gradient tolerance for convergence, by default 1e-3
-        max_iter : int, optional
+        max_iter
             Maximum number of iterations, by default 25
-        cg_maxiter : int, optional
+        cg_maxiter
             Maximum CG iterations, by default 100
-        cg_maxiter_increment : int, optional
+        cg_maxiter_increment
             CG iteration increment per Newton step, by default 25
-        nystroem_rank : int, optional
+        nystroem_rank
             Rank for Nyström approximation, by default 25
-        disable_tqdm : bool, optional
-            Whether to disable progress bar, by default False
-        lam : float, optional
+        lam
             Override regularization parameter, by default None
-        detach : bool, optional
+        detach
             Whether to detach data after fitting, by default True
-        use_direct : bool, optional
+        use_direct
             Whether to use direct solver instead of CG, by default False
-        grad_decrease : float, optional
+        grad_decrease
             Required gradient decrease factor, by default 0.5
+        verbose
+            If True print iteration information.
 
         Returns
         -------
-        tuple[JAXArray, dict]
+        tuple[JAXArray, OptimizationResult]
             The fitted parameter vector and solver information
+
         """
         if lam is not None:
             self.lam = lam
@@ -187,7 +214,8 @@ class KernelRegModel:
             if hasattr(self, "x"):
                 x0 = self.x
             else:
-                x0 = jnp.zeros(len(self.kernel))
+                size = sum([v.size for v in self.variables])
+                x0 = jnp.zeros(size)
 
         solver: NewtonDirect | NewtonCG
         if use_direct:
@@ -200,22 +228,19 @@ class KernelRegModel:
                 x0,
                 max_iter=max_iter,
                 gtol=gtol,
-                disable_tqdm=disable_tqdm,
                 grad_decrease=grad_decrease,
+                verbose=verbose,
             )
         else:
-            precon_builder: PreconBuilder
             if nystroem_rank > 0:
-                precon_builder = NystroemPreconBuilder(
-                    self.likelihood, self.kernel, self.lam, nystroem_rank
+                raise ValueError(
+                    "Do not support preconditioner until further development"
                 )
-            else:
-                precon_builder = PlainPreconBuilder(self.kernel)
             solver = NewtonCG(
                 jax.jit(self.objective),
                 jax.jit(self.gradient),
                 self.hessian,
-                precon_builder,
+                precon_builder=None,
             )
             self.x, self.solver_info = solver.solve(
                 x0,
@@ -338,29 +363,9 @@ class KernelRegModel:
         """
         x = self.x if x is None else x
         if from_kernel:
-            self.kernel.attach(data)
-            kernel_components = self.kernel.kernel_components
-            rows = [
-                jnp.asarray(data[kc.columns].to_numpy())
-                for kc in kernel_components
-            ]
-            inv_k_x = self.kernel.op_p @ x
-
-            def predict_row(*row):
-                k_new_x = functools.reduce(
-                    jnp.kron,
-                    [
-                        kc.kfunc(jnp.asarray([coords]), kc.span)
-                        for kc, coords in zip(kernel_components, row)
-                    ],
-                )
-                return jnp.dot(k_new_x, inv_k_x)
-
-            predict_rows = jax.vmap(jax.jit(predict_row))
-            y = predict_rows(*rows)
-            offset = data[self.likelihood.offset].to_numpy()
-            pred = self.likelihood.inv_link(offset + y.ravel())
-            self.kernel.clear_matrices()
+            raise ValueError(
+                "from_kernel option is not supported until further development"
+            )
         else:
             self.attach(data, train=False)
             pred = self.likelihood.get_param(x)

@@ -1,15 +1,14 @@
 from abc import ABC, abstractmethod
-from functools import reduce
 from typing import NotRequired, TypedDict
 
 import jax
 import jax.numpy as jnp
-import numpy as np
+import pandas as pd
 from jax.experimental.sparse import BCOO
 from jax.scipy.special import xlogy
 
-from kreg.kernel import KroneckerKernel
 from kreg.typing import Callable, DataFrame, JAXArray, Series
+from kreg.variable import Variable
 
 
 class LikelihoodData(TypedDict):
@@ -64,9 +63,9 @@ class Likelihood(ABC):
     def attach(
         self,
         data: DataFrame,
-        kernel: KroneckerKernel,
+        variables: list[Variable],
         train: bool = True,
-        density: Series | None = None,
+        density: dict[str, Series] | None = None,
     ) -> None:
         data = self._validate_data(data, train=train)
         size = len(data)
@@ -74,7 +73,7 @@ class Likelihood(ABC):
             "offset": jnp.zeros(size)
             if self.offset is None
             else jnp.asarray(data[self.offset]),
-            "mat": self.encode(data, kernel, density),
+            "mat": self.encode(data, variables, density),
         }
         if train:
             self.data["obs"] = jnp.asarray(data[self.obs])
@@ -107,69 +106,47 @@ class Likelihood(ABC):
         del self.data
 
     @staticmethod
-    def encode_integral(data: DataFrame, kernel: KroneckerKernel) -> DataFrame:
-        df = reduce(
-            lambda x, y: x.merge(y, on="row_index", how="outer"),
-            (dimension.build_mat(data) for dimension in kernel.dimensions),
-        )
-        dim_sizes = [len(dimension) for dimension in kernel.dimensions]
-        dim_names = [dimension.name for dimension in kernel.dimensions]
-        res_sizes = np.hstack([1, np.cumprod(dim_sizes[::-1][:-1], dtype=int)])[
-            ::-1
-        ]
-
-        df["col_index"] = 0
-        df["val"] = 1.0
-        for dim_name, res_size in zip(dim_names, res_sizes):
-            df["col_index"] += df[f"{dim_name}_col_index"] * res_size
-            df["val"] *= df[f"{dim_name}_val"]
-        return df
-
-    @staticmethod
-    def integral_to_design_mat(
-        integral: DataFrame, shape: tuple[int, int]
+    def encode(
+        data: DataFrame,
+        variables: list[Variable],
+        density: dict[str, Series] | None = None,
     ) -> BCOO:
+        variable_sizes = pd.DataFrame(
+            {
+                "variable_index": range(len(variables)),
+                "size": [v.size for v in variables],
+            }
+        )
+        variable_sizes["shift"] = (
+            variable_sizes["size"].cumsum().shift(1, fill_value=0)
+        )
+        shape = len(data), variable_sizes["size"].sum()
+
+        density = density or {}
+        df: pd.DataFrame = pd.concat(
+            [
+                variable.encode(
+                    data, density=density.get(variable.identifier)
+                ).assign(variable_index=variable_index)
+                for variable_index, variable in enumerate(variables)
+            ],
+            axis=0,
+            ignore_index=True,
+        )
+        df = df.merge(
+            variable_sizes[["variable_index", "shift"]],
+            on="variable_index",
+            how="left",
+        )
+        df["col_index"] += df["shift"]
+        df.drop(columns=["shift"], inplace=True)
         row, col, val = (
-            jnp.asarray(integral["row_index"]),
-            jnp.asarray(integral["col_index"]),
-            jnp.asarray(integral["val"]),
+            jnp.asarray(df["row_index"]),
+            jnp.asarray(df["col_index"]),
+            jnp.asarray(df["val"]),
         )
         indices = jnp.vstack([row, col]).T
         return BCOO((val, indices), shape=shape)
-
-    @staticmethod
-    def encode(
-        data: DataFrame,
-        kernel: KroneckerKernel,
-        density: Series | None = None,
-    ) -> BCOO:
-        shape = len(data), len(kernel)
-        df = Likelihood.encode_integral(data, kernel)
-
-        # normalization
-        if density is not None:
-            if not isinstance(density, Series):
-                raise TypeError(
-                    "density must be a pandas Series with index coincide with "
-                    "the kernel dimensions."
-                )
-            density = density.rename("density").reset_index()
-            kernel_span = kernel.span
-            missing_cols = set(kernel_span.columns) - set(density.columns)
-            if missing_cols:
-                raise ValueError(
-                    f"Please provide {missing_cols} as the density index."
-                )
-            matched_density = kernel_span.merge(density, how="left")
-            if matched_density["density"].isna().any():
-                raise ValueError(
-                    "Missing density value for certain kernel dimension."
-                )
-            density = matched_density["density"].to_numpy()
-            df["val"] *= density[df["col_index"].to_numpy()]
-        df["val"] /= df.groupby("row_index")["val"].transform("sum")
-
-        return Likelihood.integral_to_design_mat(df, shape)
 
     def get_lin_param(self, x: JAXArray) -> JAXArray:
         return self.mat_apply(x) + self.data["offset"]

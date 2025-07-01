@@ -1,9 +1,7 @@
 import functools
 
-import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from jax.experimental.sparse import BCOO
 
 from kreg.kernel import KroneckerKernel
 
@@ -35,8 +33,7 @@ class Variable:
 
     def encode(
         self, data: pd.DataFrame, density: pd.Series | None = None
-    ) -> BCOO:
-        shape = len(data), self.size
+    ) -> pd.DataFrame:
         df = _encode_integral(data, self.kernel)
 
         # normalization
@@ -73,8 +70,7 @@ class Variable:
             df["val"] *= df["mask"]
             df.drop(columns=["mask"], inplace=True)
         df = df.query("val != 0.0").reset_index(drop=True)
-
-        return _integral_to_design_mat(df, shape)
+        return df
 
 
 def _encode_integral(
@@ -101,15 +97,3 @@ def _encode_integral(
         df["col_index"] += df[f"{dim_name}_col_index"] * res_size
         df["val"] *= df[f"{dim_name}_val"]
     return df
-
-
-def _integral_to_design_mat(
-    integral: pd.DataFrame, shape: tuple[int, int]
-) -> BCOO:
-    row, col, val = (
-        jnp.asarray(integral["row_index"]),
-        jnp.asarray(integral["col_index"]),
-        jnp.asarray(integral["val"]),
-    )
-    indices = jnp.vstack([row, col]).T
-    return BCOO((val, indices), shape=shape)

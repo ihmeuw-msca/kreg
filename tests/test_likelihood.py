@@ -4,11 +4,12 @@ import pytest
 from kreg.kernel import KernelComponent, KroneckerKernel
 from kreg.kernel.factory import build_matern_three_half_kfunc, vectorize_kfunc
 from kreg.likelihood import BinomialLikelihood, PoissonLikelihood
+from kreg.variable import Variable
 
 
 @pytest.fixture
-def kernel() -> KroneckerKernel:
-    return KroneckerKernel(
+def variable() -> Variable:
+    kernel = KroneckerKernel(
         [
             KernelComponent(
                 ["age_mid"],
@@ -16,6 +17,8 @@ def kernel() -> KroneckerKernel:
             )
         ]
     )
+    variable = Variable("intercept", kernel=kernel)
+    return variable
 
 
 @pytest.fixture
@@ -33,12 +36,12 @@ def bad_data() -> pd.DataFrame:
 @pytest.mark.parametrize(
     "likelihood_class", [BinomialLikelihood, PoissonLikelihood]
 )
-def test_likelihood_validate_data(likelihood_class, bad_data, kernel):
-    kernel.attach(bad_data)
+def test_likelihood_validate_data(likelihood_class, bad_data, variable):
+    variable.attach(bad_data)
     likelihood = likelihood_class(obs="obs", weights="weights", offset="offset")
 
     with pytest.raises(ValueError):
-        likelihood.attach(data=bad_data, kernel=kernel, train=True)
+        likelihood.attach(data=bad_data, variables=[variable], train=True)
 
     # This should raise error, _validate_data call is skipped when train=False
-    likelihood.attach(data=bad_data, kernel=kernel, train=False)
+    likelihood.attach(data=bad_data, variables=[variable], train=False)
