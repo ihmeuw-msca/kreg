@@ -39,7 +39,7 @@ class Dimension:
         return self._grid
 
     @property
-    def identifier(self) -> str:
+    def label(self) -> str:
         if self.coords is not None:
             return "(" + ",".join(self.coords) + ")"
         if self.interval is not None:

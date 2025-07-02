@@ -126,7 +126,7 @@ class Likelihood(ABC):
         df: pd.DataFrame = pd.concat(
             [
                 variable.encode(
-                    data, density=density.get(variable.identifier)
+                    data, density=density.get(variable.label)
                 ).assign(variable_index=variable_index)
                 for variable_index, variable in enumerate(variables)
             ],

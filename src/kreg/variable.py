@@ -24,10 +24,10 @@ class Variable:
         return 1 if self.kernel is None else len(self.kernel)
 
     @property
-    def identifier(self) -> str:
+    def label(self) -> str:
         if self.kernel is None:
             return self.name
-        return self.name + "/" + self.kernel.identifier
+        return self.name + "/" + self.kernel.label
 
     def attach(self, data: pd.DataFrame) -> None:
         if self.kernel is not None:

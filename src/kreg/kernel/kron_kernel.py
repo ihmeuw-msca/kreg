@@ -56,8 +56,8 @@ class KroneckerKernel:
         self.status = "detached"
 
     @property
-    def identifier(self) -> str:
-        return "*".join([dim.identifier for dim in self.dimensions])
+    def label(self) -> str:
+        return "*".join([dim.label for dim in self.dimensions])
 
     @property
     def span(self) -> DataFrame:

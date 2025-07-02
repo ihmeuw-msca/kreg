@@ -195,10 +195,10 @@ class KernelRegModel:
         """
         if lam is not None:
             if not isinstance(lam, dict):
-                lam = {v.identifier: lam for v in self.variables}
+                lam = {v.label: lam for v in self.variables}
             for v in self.variables:
-                if v.identifier in lam:
-                    v.lam = lam[v.identifier]
+                if v.label in lam:
+                    v.lam = lam[v.label]
 
         # attach dataframe
         if data is not None:

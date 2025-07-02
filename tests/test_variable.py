@@ -3,16 +3,16 @@ from kreg.kernel.factory import build_gaussianRBF_kfunc, vectorize_kfunc
 from kreg.variable import Variable
 
 
-def test_identifier():
+def test_label():
     dummy_kfunc = vectorize_kfunc(build_gaussianRBF_kfunc(1.0))
 
     kernel = KroneckerKernel([KernelComponent("x", dummy_kfunc)])
     variable = Variable("intercept", kernel=kernel)
-    assert variable.identifier == "intercept/x"
+    assert variable.label == "intercept/x"
 
     kernel = KroneckerKernel([KernelComponent(["x", "y"], dummy_kfunc)])
     variable = Variable("intercept", kernel=kernel)
-    assert variable.identifier == "intercept/x*y"
+    assert variable.label == "intercept/x*y"
 
     kernel = KroneckerKernel(
         [
@@ -22,7 +22,7 @@ def test_identifier():
         ]
     )
     variable = Variable("intercept", kernel=kernel)
-    assert variable.identifier == "intercept/(x,y,z)"
+    assert variable.label == "intercept/(x,y,z)"
 
     kernel = KroneckerKernel(
         [
@@ -32,7 +32,7 @@ def test_identifier():
         ]
     )
     variable = Variable("intercept", kernel=kernel)
-    assert variable.identifier == "intercept/(a-b)"
+    assert variable.label == "intercept/(a-b)"
 
     kernel = KroneckerKernel(
         [
@@ -45,4 +45,4 @@ def test_identifier():
         ]
     )
     variable = Variable("intercept", kernel=kernel)
-    assert variable.identifier == "intercept/(x,y,z)*(a-b)"
+    assert variable.label == "intercept/(x,y,z)*(a-b)"
