@@ -1,9 +1,11 @@
 import functools
 
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 
 from kreg.kernel import KroneckerKernel
+from kreg.typing import JAXArray
 
 
 class Variable:
@@ -77,6 +79,27 @@ class Variable:
             df.drop(columns=["mask"], inplace=True)
         df = df.query("val != 0.0").reset_index(drop=True)
         return df
+
+    def objective(self, x: JAXArray) -> JAXArray:
+        val = 0.5 * self.lam_ridge * x.T @ x
+        if self.kernel is not None:
+            val += 0.5 * self.lam * x.T @ self.kernel.op_p @ x
+        return val
+
+    def gradient(self, x: JAXArray) -> JAXArray:
+        val = self.lam_ridge * x
+        if self.kernel is not None:
+            val += self.lam * self.kernel.op_p @ x
+        return val
+
+    def hessian_op(self, x: JAXArray) -> JAXArray:
+        return self.gradient(x)
+
+    def hessian_matrix(self) -> JAXArray:
+        mat = self.lam_ridge * jnp.eye(self.size)
+        if self.kernel is not None:
+            mat += self.lam * self.kernel.op_p.to_array()
+        return mat
 
 
 def _encode_integral(

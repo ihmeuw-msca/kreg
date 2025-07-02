@@ -38,37 +38,28 @@ class KernelRegModel:
     def objective_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, 0.0
         for v in self.variables:
-            x_sub = x[start : start + v.size]
-            if v.kernel is not None:
-                val += 0.5 * v.lam * x_sub.T @ v.kernel.op_p @ x_sub
-            val += 0.5 * v.lam_ridge * x_sub.T @ x_sub
+            val += v.objective(x[start : start + v.size])
             start += v.size
         return val
 
     def gradient_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, []
         for v in self.variables:
-            x_sub = x[start : start + v.size]
-            val_sub = v.lam_ridge * x_sub
-            if v.kernel is not None:
-                val_sub += v.lam * v.kernel.op_p @ x_sub
-            val.append(val_sub)
+            val.append(v.gradient(x[start : start + v.size]))
             start += v.size
         return jnp.hstack(val)
 
     def hessian_prior_op(self, x: JAXArray) -> JAXArray:
-        return self.gradient_prior(x)
+        start, val = 0, []
+        for v in self.variables:
+            val.append(v.hessian_op(x[start : start + v.size]))
+            start += v.size
+        return jnp.hstack(val)
 
     @functools.cache
     def hessian_prior_matrix(self) -> JAXArray:
-        size, mats = 0, []
-        for v in self.variables:
-            if v.kernel is None:
-                mats.append(jnp.zeros((1, 1)))
-            else:
-                mats.append(v.lam * v.kernel.op_p.to_array())
-            size += v.size
-        return block_diag(*mats) + v.lam_ridge * jnp.eye(size)
+        mats = [v.hessian_matrix() for v in self.variables]
+        return block_diag(*mats)
 
     def objective(self, x: JAXArray) -> JAXArray:
         return self.likelihood.objective(x) + self.objective_prior(x)
