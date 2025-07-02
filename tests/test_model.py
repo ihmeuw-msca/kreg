@@ -6,7 +6,7 @@ from kreg.kernel import KernelComponent, KroneckerKernel
 from kreg.kernel.factory import build_matern_three_half_kfunc, vectorize_kfunc
 from kreg.likelihood import GaussianLikelihood
 from kreg.model import KernelRegModel
-from kreg.variable import Variable
+from kreg.term import Term
 
 
 @pytest.fixture
@@ -46,8 +46,8 @@ def model() -> KernelRegModel:
         obs="obs", weights="weights", offset="offset"
     )
 
-    variable = Variable("intercept", kernel=kernel, lam=1.0)
-    model = KernelRegModel([variable], likelihood)
+    term = Term("intercept", kernel=kernel, lam=1.0)
+    model = KernelRegModel([term], likelihood)
     return model
 
 

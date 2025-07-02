@@ -7,8 +7,8 @@ import pandas as pd
 from jax.experimental.sparse import BCOO
 from jax.scipy.special import xlogy
 
+from kreg.term import Term
 from kreg.typing import Callable, DataFrame, JAXArray, Series
-from kreg.variable import Variable
 
 
 class LikelihoodData(TypedDict):
@@ -63,7 +63,7 @@ class Likelihood(ABC):
     def attach(
         self,
         data: DataFrame,
-        variables: list[Variable],
+        terms: list[Term],
         train: bool = True,
         density: dict[str, Series] | None = None,
     ) -> None:
@@ -73,7 +73,7 @@ class Likelihood(ABC):
             "offset": jnp.zeros(size)
             if self.offset is None
             else jnp.asarray(data[self.offset]),
-            "mat": self.encode(data, variables, density),
+            "mat": self.encode(data, terms, density),
         }
         if train:
             self.data["obs"] = jnp.asarray(data[self.obs])
@@ -108,13 +108,13 @@ class Likelihood(ABC):
     @staticmethod
     def encode(
         data: DataFrame,
-        variables: list[Variable],
+        terms: list[Term],
         density: dict[str, Series] | None = None,
     ) -> BCOO:
         variable_sizes = pd.DataFrame(
             {
-                "variable_index": range(len(variables)),
-                "size": [v.size for v in variables],
+                "variable_index": range(len(terms)),
+                "size": [v.size for v in terms],
             }
         )
         variable_sizes["shift"] = (
@@ -128,7 +128,7 @@ class Likelihood(ABC):
                 variable.encode(
                     data, density=density.get(variable.label)
                 ).assign(variable_index=variable_index)
-                for variable_index, variable in enumerate(variables)
+                for variable_index, variable in enumerate(terms)
             ],
             axis=0,
             ignore_index=True,

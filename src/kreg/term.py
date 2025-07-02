@@ -8,7 +8,7 @@ from kreg.kernel import KroneckerKernel
 from kreg.typing import JAXArray
 
 
-class Variable:
+class Term:
     def __init__(
         self,
         name: str,

@@ -8,28 +8,26 @@ from msca.optim.prox import proj_capped_simplex
 
 from kreg.likelihood import Likelihood
 from kreg.solver.newton import NewtonCG, NewtonDirect, OptimizationResult
+from kreg.term import Term
 from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
-from kreg.variable import Variable
 
 # TODO: Inexact solve, when to quit
 jax.config.update("jax_enable_x64", True)
 
 
 class KernelRegModel:
-    def __init__(
-        self, variables: list[Variable], likelihood: Likelihood
-    ) -> None:
+    def __init__(self, terms: list[Term], likelihood: Likelihood) -> None:
         """Kernel regression model
 
         Parameters
         ----------
-        variables
+        terms
             The regression terms for the kernel regression
         likelihood
             The likelihood model to use
 
         """
-        self.variables = variables
+        self.terms = terms
         self.likelihood = likelihood
 
         self.x: JAXArray
@@ -37,28 +35,28 @@ class KernelRegModel:
 
     def objective_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, 0.0
-        for v in self.variables:
+        for v in self.terms:
             val += v.objective(x[start : start + v.size])
             start += v.size
         return val
 
     def gradient_prior(self, x: JAXArray) -> JAXArray:
         start, val = 0, []
-        for v in self.variables:
+        for v in self.terms:
             val.append(v.gradient(x[start : start + v.size]))
             start += v.size
         return jnp.hstack(val)
 
     def hessian_prior_op(self, x: JAXArray) -> JAXArray:
         start, val = 0, []
-        for v in self.variables:
+        for v in self.terms:
             val.append(v.hessian_op(x[start : start + v.size]))
             start += v.size
         return jnp.hstack(val)
 
     @functools.cache
     def hessian_prior_matrix(self) -> JAXArray:
-        mats = [v.hessian_matrix() for v in self.variables]
+        mats = [v.hessian_matrix() for v in self.terms]
         return block_diag(*mats)
 
     def objective(self, x: JAXArray) -> JAXArray:
@@ -115,16 +113,14 @@ class KernelRegModel:
             Whether in training mode, by default True
 
         """
-        for v in self.variables:
+        for v in self.terms:
             v.attach(data if data_span is None else data_span)
-        self.likelihood.attach(
-            data, self.variables, train=train, density=density
-        )
+        self.likelihood.attach(data, self.terms, train=train, density=density)
 
     def detach(self) -> None:
         """Release resources by detaching data from the model."""
         self.likelihood.detach()
-        for v in self.variables:
+        for v in self.terms:
             v.clear_matrices()
 
     def fit(
@@ -186,8 +182,8 @@ class KernelRegModel:
         """
         if lam is not None:
             if not isinstance(lam, dict):
-                lam = {v.label: lam for v in self.variables}
-            for v in self.variables:
+                lam = {v.label: lam for v in self.terms}
+            for v in self.terms:
                 if v.label in lam:
                     v.lam = lam[v.label]
 
@@ -199,7 +195,7 @@ class KernelRegModel:
             if hasattr(self, "x"):
                 x0 = self.x
             else:
-                size = sum([v.size for v in self.variables])
+                size = sum([v.size for v in self.terms])
                 x0 = jnp.zeros(size)
 
         solver: NewtonDirect | NewtonCG
