@@ -46,8 +46,8 @@ def model() -> KernelRegModel:
         obs="obs", weights="weights", offset="offset"
     )
 
-    variable = Variable("intercept", kernel=kernel)
-    model = KernelRegModel([variable], likelihood, lam=1.0)
+    variable = Variable("intercept", kernel=kernel, lam=1.0)
+    model = KernelRegModel([variable], likelihood)
     return model
 
 

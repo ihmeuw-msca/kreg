@@ -8,10 +8,16 @@ from kreg.kernel import KroneckerKernel
 
 class Variable:
     def __init__(
-        self, name: str, kernel: KroneckerKernel | None = None
+        self,
+        name: str,
+        kernel: KroneckerKernel | None = None,
+        lam: float = 1.0,
+        lam_ridge: float = 0.0,
     ) -> None:
         self.name = name
         self.kernel = kernel
+        self.lam = lam
+        self.lam_ridge = lam_ridge
 
     @property
     def size(self) -> int:

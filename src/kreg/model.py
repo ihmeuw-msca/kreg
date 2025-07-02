@@ -17,42 +17,20 @@ jax.config.update("jax_enable_x64", True)
 
 class KernelRegModel:
     def __init__(
-        self,
-        variables: list[Variable],
-        likelihood: Likelihood,
-        lam: float | dict[str, float],
-        lam_ridge: float | dict[str, float] = 0.0,
+        self, variables: list[Variable], likelihood: Likelihood
     ) -> None:
-        """
-        Initialize a Kernel Regression Model.
+        """Kernel regression model
 
         Parameters
         ----------
-        kernel : KroneckerKernel
-            The Kronecker kernel to use for regression
-        likelihood : Likelihood
+        variables
+            The regression terms for the kernel regression
+        likelihood
             The likelihood model to use
-        lam : float
-            Regularization parameter for the kernel
-        lam_ridge : float, optional
-            Additional ridge regularization parameter, by default 0.0
 
         """
         self.variables = variables
         self.likelihood = likelihood
-        if not isinstance(lam, dict):
-            lam = {v.identifier: lam for v in self.variables}
-        if not all(v.identifier in lam for v in self.variables):
-            raise ValueError(
-                "Please provide a single lam for all variable or lam for all specific variables"
-            )
-        self.lam = lam
-        if not isinstance(lam_ridge, dict):
-            lam_ridge = {v.identifier: lam_ridge for v in self.variables}
-        for v in self.variables:
-            if v.identifier not in lam_ridge:
-                lam_ridge[v.identifier] = 0.0
-        self.lam_ridge = lam_ridge
 
         self.x: JAXArray
         self.solver_info: OptimizationResult
@@ -61,11 +39,9 @@ class KernelRegModel:
         start, val = 0, 0.0
         for v in self.variables:
             x_sub = x[start : start + v.size]
-            lam = self.lam[v.identifier]
-            lam_ridge = self.lam_ridge[v.identifier]
             if v.kernel is not None:
-                val += 0.5 * lam * x_sub.T @ v.kernel.op_p @ x_sub
-            val += 0.5 * lam_ridge * x_sub.T @ x_sub
+                val += 0.5 * v.lam * x_sub.T @ v.kernel.op_p @ x_sub
+            val += 0.5 * v.lam_ridge * x_sub.T @ x_sub
             start += v.size
         return val
 
@@ -73,11 +49,9 @@ class KernelRegModel:
         start, val = 0, []
         for v in self.variables:
             x_sub = x[start : start + v.size]
-            lam = self.lam[v.identifier]
-            lam_ridge = self.lam_ridge[v.identifier]
-            val_sub = lam_ridge * x_sub
+            val_sub = v.lam_ridge * x_sub
             if v.kernel is not None:
-                val_sub += lam * v.kernel.op_p @ x_sub
+                val_sub += v.lam * v.kernel.op_p @ x_sub
             val.append(val_sub)
             start += v.size
         return jnp.hstack(val)
@@ -89,14 +63,12 @@ class KernelRegModel:
     def hessian_prior_matrix(self) -> JAXArray:
         size, mats = 0, []
         for v in self.variables:
-            lam = self.lam[v.identifier]
-            lam_ridge = self.lam_ridge[v.identifier]
             if v.kernel is None:
                 mats.append(jnp.zeros((1, 1)))
             else:
-                mats.append(lam * v.kernel.op_p.to_array())
+                mats.append(v.lam * v.kernel.op_p.to_array())
             size += v.size
-        return block_diag(*mats) + lam_ridge * jnp.eye(size)
+        return block_diag(*mats) + v.lam_ridge * jnp.eye(size)
 
     def objective(self, x: JAXArray) -> JAXArray:
         return self.likelihood.objective(x) + self.objective_prior(x)
@@ -223,10 +195,11 @@ class KernelRegModel:
         """
         if lam is not None:
             if not isinstance(lam, dict):
-                self.lam = {v.identifier: lam for v in self.variables}
-            else:
-                for key, val in lam.items():
-                    self.lam[key] = val
+                lam = {v.identifier: lam for v in self.variables}
+            for v in self.variables:
+                if v.identifier in lam:
+                    v.lam = lam[v.identifier]
+
         # attach dataframe
         if data is not None:
             self.attach(data, data_span=data_span, density=density, train=True)
