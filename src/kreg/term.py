@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from kreg.kernel import KroneckerKernel
-from kreg.typing import JAXArray
+from kreg.typing import Callable, JAXArray
 
 
 class Term:
@@ -100,6 +100,18 @@ class Term:
         if self.kernel is not None:
             mat += self.lam * self.kernel.op_p.to_array()
         return mat
+
+    @property
+    @functools.cache
+    def precon_op(self) -> Callable:
+        if self.kernel is None:
+
+            def op(x: JAXArray) -> JAXArray:
+                return x
+
+            return op
+
+        return self.kernel.dot
 
 
 def _encode_integral(

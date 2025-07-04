@@ -7,6 +7,7 @@ from jax.scipy.linalg import block_diag
 from msca.optim.prox import proj_capped_simplex
 
 from kreg.likelihood import Likelihood
+from kreg.precon import PlainPreconBuilder
 from kreg.solver.newton import NewtonCG, NewtonDirect, OptimizationResult
 from kreg.term import Term
 from kreg.typing import Callable, DataFrame, JAXArray, NDArray, Series
@@ -217,11 +218,13 @@ class KernelRegModel:
                 raise ValueError(
                     "Do not support preconditioner until further development"
                 )
+            else:
+                precon_builder = PlainPreconBuilder(self.terms)
             solver = NewtonCG(
                 jax.jit(self.objective),
                 jax.jit(self.gradient),
                 self.hessian,
-                precon_builder=None,
+                precon_builder=precon_builder,
             )
             self.x, self.solver_info = solver.solve(
                 x0,
