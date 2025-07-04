@@ -56,6 +56,10 @@ class KroneckerKernel:
         self.status = "detached"
 
     @property
+    def label(self) -> str:
+        return "*".join([dim.label for dim in self.dimensions])
+
+    @property
     def span(self) -> DataFrame:
         columns = list(
             itertools.chain.from_iterable(
@@ -117,4 +121,3 @@ class KroneckerKernel:
 
     def __len__(self) -> int:
         return np.prod(list(len(dim.span) for dim in self.dimensions))
-

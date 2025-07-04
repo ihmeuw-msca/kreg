@@ -38,6 +38,14 @@ class Dimension:
             raise AttributeError("Please set dimension span first")
         return self._grid
 
+    @property
+    def label(self) -> str:
+        if self.coords is not None:
+            return "(" + ",".join(self.coords) + ")"
+        if self.interval is not None:
+            return "(" + "-".join(self.interval) + ")"
+        return self.name
+
     def set_span(
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> None:

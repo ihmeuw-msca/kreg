@@ -38,8 +38,8 @@ def armijo_line_search(
     return step, armijo_ratio, (jnp.linalg.norm(new_grad) / jnp.linalg.norm(g))
 
 
-def build_armijo_linesearch(f,decrease_ratio=0.5,slope=0.05,max_iter = 25):
-    def armijo_linesearch(x, f_curr, d, g, t0=1.):
+def build_armijo_linesearch(f, decrease_ratio=0.5, slope=0.05, max_iter=25):
+    def armijo_linesearch(x, f_curr, d, g, t0=1.0):
         """
         x: current parameters (pytree)
         f_curr: f(x)
@@ -48,10 +48,10 @@ def build_armijo_linesearch(f,decrease_ratio=0.5,slope=0.05,max_iter = 25):
         t0: initial step size
         a: Armijo constant
         """
-        candidate = x - t0 * d#tree_add(x, tree_scale(d, -t0))
+        candidate = x - t0 * d  # tree_add(x, tree_scale(d, -t0))
         dec0 = f(candidate) - f_curr
-        pred_dec0 = -t0 * jnp.dot(d,g)#tree_dot(d, g)
-        
+        pred_dec0 = -t0 * jnp.dot(d, g)  # tree_dot(d, g)
+
         # The loop state: (iteration, t, current decrease, predicted decrease)
         init_state = (0, t0, dec0, pred_dec0)
 
@@ -63,17 +63,18 @@ def build_armijo_linesearch(f,decrease_ratio=0.5,slope=0.05,max_iter = 25):
 
         def body_fun(state):
             i, t, dec, pred_dec = state
-            t_new = decrease_ratio*t
+            t_new = decrease_ratio * t
             candidate_new = x - t_new * d
             dec_new = f(candidate_new) - f_curr
-            pred_dec_new = -t_new * jnp.dot(d,g)#tree_dot(d, g)
+            pred_dec_new = -t_new * jnp.dot(d, g)  # tree_dot(d, g)
             return (i + 1, t_new, dec_new, pred_dec_new)
 
         # Run the while loop
         i_final, t_final, dec_final, pred_dec_final = jax.lax.while_loop(
             cond_fun, body_fun, init_state
         )
-        armijo_rat_final = dec_final/pred_dec_final
-        candidate_final = x - t_final*d
-        return candidate_final, t_final,armijo_rat_final
+        armijo_rat_final = dec_final / pred_dec_final
+        candidate_final = x - t_final * d
+        return candidate_final, t_final, armijo_rat_final
+
     return armijo_linesearch
