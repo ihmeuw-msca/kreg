@@ -71,7 +71,7 @@ class KernelComponent:
             dimension.set_span(data)
 
     def build_kmat(
-        self, nugget: float = 0.0, normalize: bool = True
+        self, nugget: float = 0.0, normalize: bool = False
     ) -> JAXArray:
         mat = self.kfunc(self.span, self.span)
         if normalize:

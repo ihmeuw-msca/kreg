@@ -21,6 +21,9 @@ class KroneckerKernel:
         List of value grids, unique values for each dimension.
     nugget
         Regularization for the kernel matrix.
+    normalize
+        If True, will normalize the kernel matrix so that the diagonal elements
+        are all ones. Default is False.
 
     """
 
@@ -28,7 +31,7 @@ class KroneckerKernel:
         self,
         kernel_components: list[KernelComponent],
         nugget: float = 5e-8,
-        normalize: bool = True,
+        normalize: bool = False,
     ) -> None:
         self.kernel_components = kernel_components
         self.nugget = nugget
