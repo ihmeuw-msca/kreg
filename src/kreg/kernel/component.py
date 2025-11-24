@@ -70,10 +70,14 @@ class KernelComponent:
         for dimension in self.dimensions:
             dimension.set_span(data)
 
-    def build_kmat(self, nugget: float = 0.0) -> JAXArray:
-        return self.kfunc(self.span, self.span) + nugget * jnp.identity(
-            len(self)
-        )
+    def build_kmat(
+        self, nugget: float = 0.0, normalize: bool = False
+    ) -> JAXArray:
+        mat = self.kfunc(self.span, self.span)
+        if normalize:
+            vec = jnp.sqrt(mat.max(axis=0))
+            mat = mat / jnp.outer(vec, vec)
+        return mat + nugget * jnp.identity(len(self))
 
     def __len__(self) -> int:
         return len(self.span)

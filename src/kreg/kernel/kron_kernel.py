@@ -21,6 +21,9 @@ class KroneckerKernel:
         List of value grids, unique values for each dimension.
     nugget
         Regularization for the kernel matrix.
+    normalize
+        If True, will normalize the kernel matrix so that the diagonal elements
+        are all ones. Default is False.
 
     """
 
@@ -28,6 +31,7 @@ class KroneckerKernel:
         self,
         kernel_components: list[KernelComponent],
         nugget: float = 5e-8,
+        normalize: bool = False,
     ) -> None:
         self.kernel_components = kernel_components
         self.nugget = nugget
@@ -46,6 +50,7 @@ class KroneckerKernel:
                 self.columns.append(columns)
             else:
                 self.columns.extend(columns)
+        self.normalize = normalize
 
         self.kmats: list[JAXArray]
         self.op_k: KroneckerProduct
@@ -81,7 +86,7 @@ class KroneckerKernel:
 
     def _build_matrices(self):
         self.kmats = [
-            component.build_kmat(self.nugget)
+            component.build_kmat(self.nugget, self.normalize)
             for component in self.kernel_components
         ]
         self.op_k = KroneckerProduct(self.kmats)
