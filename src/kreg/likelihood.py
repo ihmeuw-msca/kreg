@@ -76,13 +76,14 @@ class Likelihood(ABC):
             "mat": self.encode(data, terms, density),
         }
         if train:
-            self.data["obs"] = jnp.asarray(data[self.obs])
-            self.data["weights"] = (
+            weights = (
                 jnp.ones(size)
                 if self.weights is None
                 else jnp.asarray(data[self.weights])
             )
-            self.data["orig_weights"] = jnp.asarray(data[self.weights])
+            self.data["obs"] = jnp.asarray(data[self.obs])
+            self.data["weights"] = weights
+            self.data["orig_weights"] = weights
             self.data["trim_weights"] = jnp.ones(size)
 
         @jax.jit
