@@ -136,3 +136,9 @@ def test_kronecker_kernel_span_order(kernel, grid):
     assert np.array_equal(encoded["row_index"], np.arange(12))
     assert np.array_equal(encoded["col_index"], np.arange(12))
     assert np.allclose(encoded["val"], 1.0)
+
+
+@pytest.mark.parametrize("config", ["age_mid", {"name": "age_mid"}])
+def test_kernel_component_single_config(config) -> None:
+    component = KernelComponent(config, vectorize_kfunc(lambda x, y: x * y))
+    assert component.dim_names == ["age_mid"]

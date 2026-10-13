@@ -31,9 +31,9 @@ class Likelihood(ABC):
         self.data: LikelihoodData
 
     @property
-    def size(self) -> int | None:
-        if not self.data:
-            raise ValueError("No data attached.")
+    def size(self) -> int:
+        if not hasattr(self, "data"):
+            raise ValueError("No data attached. Call `attach` first.")
         return len(self.data["obs"])
 
     @property
