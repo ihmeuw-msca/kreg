@@ -142,3 +142,29 @@ def test_kronecker_kernel_span_order(kernel, grid):
 def test_kernel_component_single_config(config) -> None:
     component = KernelComponent(config, vectorize_kfunc(lambda x, y: x * y))
     assert component.dim_names == ["age_mid"]
+
+
+def test_kronecker_kernel_span_with_interval() -> None:
+    kernel = KroneckerKernel(
+        [
+            KernelComponent("loc", vectorize_kfunc(lambda x, y: x * y)),
+            KernelComponent(
+                {"name": "age", "interval": ("a0", "a1")},
+                vectorize_kfunc(lambda x, y: x * y),
+            ),
+        ]
+    )
+    kernel.attach(
+        pd.DataFrame(
+            {"loc": [1, 1, 2, 2], "a0": [0.0, 1.0] * 2, "a1": [1.0, 2.0] * 2}
+        )
+    )
+    span = kernel.span
+    assert span.columns.tolist() == ["loc", "a0", "a1"]
+    assert span.to_numpy().tolist() == [
+        [1, 0, 1],
+        [1, 1, 2],
+        [2, 0, 1],
+        [2, 1, 2],
+    ]
+    assert len(span) == len(kernel)

@@ -72,14 +72,16 @@ class KroneckerKernel:
                 [dim.columns for dim in self.dimensions]
             )
         )
+        # interval dimensions are labelled by their grid cells, not midpoints
+        rows = [
+            dim.span
+            if dim.interval is None
+            else np.column_stack([dim.grid[:-1], dim.grid[1:]])
+            for dim in self.dimensions
+        ]
         span = DataFrame(
             data=np.array(
-                [
-                    np.hstack(list(row))
-                    for row in itertools.product(
-                        *[dim.span for dim in self.dimensions]
-                    )
-                ]
+                [np.hstack(list(row)) for row in itertools.product(*rows)]
             ),
             columns=columns,
         )
