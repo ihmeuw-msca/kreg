@@ -119,3 +119,10 @@ def test_model_fit_trimming_keeps_solver_options(
         data_with_outlier, inlier_pct=0.75, solver_options=solver_options
     )
     assert solver_options == {"use_direct": True, "verbose": False}
+
+
+def test_model_predict_before_fit(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    with pytest.raises(ValueError, match="fit"):
+        model.predict(data)

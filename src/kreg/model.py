@@ -351,7 +351,12 @@ class KernelRegModel:
         NDArray
             The predictions
         """
-        x = self.x if x is None else x
+        if x is None:
+            if not hasattr(self, "x"):
+                raise ValueError(
+                    "Model has not been fitted. Call `fit` first or pass `x`."
+                )
+            x = self.x
         if from_kernel:
             raise ValueError(
                 "from_kernel option is not supported until further development"

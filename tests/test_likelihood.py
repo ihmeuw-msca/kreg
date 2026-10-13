@@ -93,3 +93,8 @@ def test_likelihood_attach_with_weights(data, term):
     assert jnp.allclose(
         likelihood.data["orig_weights"], data["weights"].to_numpy()
     )
+
+
+def test_likelihood_size_before_attach() -> None:
+    with pytest.raises(ValueError, match="attach"):
+        _ = GaussianLikelihood("obs").size
