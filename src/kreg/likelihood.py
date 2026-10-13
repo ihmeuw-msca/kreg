@@ -21,6 +21,25 @@ class LikelihoodData(TypedDict):
 
 
 class Likelihood(ABC):
+    """Negative log-likelihood of the observations given the parameters.
+
+    The linear predictor is ``mat @ x + offset`` where ``mat`` is the sparse
+    encoding matrix built from the terms (see ``encode``) and ``x`` the
+    concatenated term coefficients. Subclasses define the link and the
+    per-observation negative log-likelihood ``nll_terms``; all are weighted
+    by ``weights`` times the trimming weights.
+
+    Parameters
+    ----------
+    obs
+        Observation column.
+    weights
+        Weight column; ones if ``None``.
+    offset
+        Offset column on the linear-predictor scale; zeros if ``None``.
+
+    """
+
     def __init__(
         self, obs: str, weights: str | None = None, offset: str | None = None
     ) -> None:
@@ -66,6 +85,13 @@ class Likelihood(ABC):
         train: bool = True,
         density: dict[str, Series] | None = None,
     ) -> None:
+        """Build the encoding matrix and store the data arrays.
+
+        With ``train=False`` (prediction) only the offset and the matrix are
+        stored and the observation and weight columns are neither read nor
+        validated. ``density`` maps a term label to the density passed to
+        that term's ``encode``.
+        """
         data = self._validate_data(data, train=train)
         size = len(data)
         self.data = {
@@ -111,6 +137,11 @@ class Likelihood(ABC):
         terms: list[Term],
         density: dict[str, Series] | None = None,
     ) -> BCOO:
+        """Stack the encodings of all terms into one sparse design matrix.
+
+        The result has one row per row of ``data`` and one column per
+        coefficient, term blocks side by side in the order of ``terms``.
+        """
         variable_sizes = pd.DataFrame(
             {
                 "variable_index": range(len(terms)),
