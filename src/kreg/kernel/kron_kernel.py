@@ -1,11 +1,12 @@
 import itertools
+import math
 
 import jax.numpy as jnp
 import numpy as np
-from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
 from kreg.kernel.dimension import Dimension
+from kreg.kernel.kron_op import KroneckerOperator
 from kreg.typing import DataFrame, JAXArray
 
 
@@ -53,11 +54,11 @@ class KroneckerKernel:
         self.normalize = normalize
 
         self.kmats: list[JAXArray]
-        self.op_k: KroneckerProduct
+        self.op_k: KroneckerOperator
         self.eigdecomps: list[tuple[JAXArray, JAXArray]]
-        self.op_p: KroneckerProduct
-        self.op_root_k: KroneckerProduct
-        self.op_root_p: KroneckerProduct
+        self.op_p: KroneckerOperator
+        self.op_root_k: KroneckerOperator
+        self.op_root_p: KroneckerOperator
         self.status = "detached"
 
     @property
@@ -89,15 +90,15 @@ class KroneckerKernel:
             component.build_kmat(self.nugget, self.normalize)
             for component in self.kernel_components
         ]
-        self.op_k = KroneckerProduct(self.kmats)
+        self.op_k = KroneckerOperator(self.kmats)
         self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
-        self.op_p = KroneckerProduct(
+        self.op_p = KroneckerOperator(
             [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
         )
-        self.op_root_k = KroneckerProduct(
+        self.op_root_k = KroneckerOperator(
             [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
-        self.op_root_p = KroneckerProduct(
+        self.op_root_p = KroneckerOperator(
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
 
@@ -125,4 +126,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return np.prod(list(len(dim.span) for dim in self.dimensions))
+        return math.prod(len(dim.span) for dim in self.dimensions)

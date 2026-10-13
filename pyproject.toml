@@ -19,7 +19,6 @@ classifiers = [
 ]
 dependencies = [
     "jax",
-    "pykronecker[jax]",
     "tqdm",
     "matplotlib",
     "matfree",

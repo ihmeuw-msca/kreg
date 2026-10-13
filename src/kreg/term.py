@@ -83,13 +83,13 @@ class Term:
     def objective(self, x: JAXArray) -> JAXArray:
         val = 0.5 * self.lam_ridge * x.T @ x
         if self.kernel is not None:
-            val += 0.5 * self.lam * x.T @ self.kernel.op_p @ x
+            val += 0.5 * self.lam * (x.T @ (self.kernel.op_p @ x))
         return val
 
     def gradient(self, x: JAXArray) -> JAXArray:
         val = self.lam_ridge * x
         if self.kernel is not None:
-            val += self.lam * self.kernel.op_p @ x
+            val += self.lam * (self.kernel.op_p @ x)
         return val
 
     def hessian_op(self, x: JAXArray) -> JAXArray:
