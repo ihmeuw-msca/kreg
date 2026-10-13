@@ -9,6 +9,30 @@ from kreg.typing import Callable, JAXArray
 
 
 class Term:
+    """A block of coefficients in the linear predictor.
+
+    With a kernel, the block is a surface over the kernel's grid with prior
+    ``0.5 * lam * x' K^{-1} x``. Without one, it is a single coefficient.
+    Unless ``name`` is ``"intercept"``, every encoded row is multiplied by
+    the data column ``name``, so a kernel term named ``"sdi"`` is a
+    spatially varying coefficient on ``sdi`` and a plain term named
+    ``"sdi"`` is a fixed-effect slope on it.
+
+    Parameters
+    ----------
+    name
+        Term name; also the covariate column unless it is ``"intercept"``.
+    kernel
+        Kernel defining the grid and the prior. ``None`` for a single
+        coefficient.
+    lam
+        Weight of the kernel prior. Can be overridden per fit through
+        ``KernelRegModel.fit(lam=...)`` keyed by ``label``.
+    lam_ridge
+        Weight of an additional ridge penalty ``0.5 * lam_ridge * x' x``.
+
+    """
+
     def __init__(
         self,
         name: str,
@@ -27,6 +51,9 @@ class Term:
 
     @property
     def label(self) -> str:
+        """``name`` for a plain term, ``name/kernel_label`` for a kernel
+        term; the key used by ``KernelRegModel.fit(lam=...)``.
+        """
         if self.kernel is None:
             return self.name
         return self.name + "/" + self.kernel.label
@@ -42,6 +69,30 @@ class Term:
     def encode(
         self, data: pd.DataFrame, density: pd.Series | None = None
     ) -> pd.DataFrame:
+        """Map data rows onto the term's coefficients.
+
+        Parameters
+        ----------
+        data
+            Rows to encode. Must contain the kernel's dimension columns and,
+            unless the term is the intercept, the column ``name``.
+        density
+            Optional weight per grid point, indexed by the kernel's
+            ``span`` columns (for an interval dimension, the two interval
+            columns holding the grid cell bounds). Entries are multiplied by
+            the density of their grid point before rows are normalised.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long format with columns ``row_index`` (row of ``data``),
+            ``col_index`` (coefficient within this term, row-major over the
+            kernel dimensions) and ``val``. For a kernel term the values of
+            each row sum to one before the covariate is applied, so a row
+            covering several grid cells averages them. Zero entries are
+            dropped.
+
+        """
         df = _encode_integral(data, self.kernel)
 
         # normalization

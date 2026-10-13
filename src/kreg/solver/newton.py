@@ -14,12 +14,41 @@ from kreg.typing import Callable, JAXArray
 
 @dataclass
 class OptimizationResult:
+    """Outcome of a Newton solve.
+
+    ``converged`` is True when the gradient norm reached ``gtol``, or
+    reached ``10 * gtol`` after a line-search failure.
+    ``convergence_criterion`` names which of those happened, or says that
+    the solver did not converge. ``log.to_dataframe()`` has one row per
+    iteration: objective value, infinity and 2-norms of the gradient, step
+    size and the Armijo ratio of the line search.
+    """
+
     converged: bool
     convergence_criterion: str
     log: Logger
 
 
 class NewtonCG:
+    """Newton's method with conjugate-gradient inner solves.
+
+    Each step solves ``H p = g`` by CG using Hessian-vector products only,
+    then back-tracks along ``p`` with an Armijo line search. The CG
+    iteration budget grows by ``cg_maxiter_increment`` every Newton step so
+    later steps, closer to the optimum, are solved more accurately.
+
+    Parameters
+    ----------
+    objective, gradient
+        Callables of ``x``.
+    hessian
+        Callable of ``x`` returning the Hessian-vector product function.
+    precon_builder
+        Callable of ``x`` returning a preconditioner function for CG,
+        rebuilt every ``precon_build_freq`` iterations.
+
+    """
+
     def __init__(
         self,
         objective: Callable,
@@ -43,6 +72,7 @@ class NewtonCG:
         grad_decrease=0.25,
         verbose=True,
     ) -> tuple[JAXArray, OptimizationResult]:
+        """Minimise from ``x0``; ``grad_decrease`` is unused."""
         start = time.time()
         converged = False
 
@@ -126,6 +156,17 @@ class NewtonCG:
 
 
 class NewtonDirect:
+    """Newton's method with a dense Hessian and a Cholesky solve per step.
+
+    Parameters
+    ----------
+    objective, gradient
+        Callables of ``x``.
+    hessian_mat
+        Callable of ``x`` returning the dense Hessian matrix.
+
+    """
+
     def __init__(
         self,
         objective: Callable,
@@ -144,6 +185,7 @@ class NewtonDirect:
         grad_decrease: float = 0.25,
         verbose: bool = True,
     ) -> tuple[JAXArray, OptimizationResult]:
+        """Minimise from ``x0``; ``grad_decrease`` is unused."""
         start = time.time()
         converged = False
 

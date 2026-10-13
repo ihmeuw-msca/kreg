@@ -4,11 +4,11 @@ import pandas as pd
 
 
 class Logger:
-    """
-    table printer and convergence tracker.
-      • Create once; call `log(iter=..., mu=..., ...)` each IPM step.
-      • All rows are kept in `self.rows` (a list of OrderedDicts).
-      • Call `to_dataframe()` at any point to get a pandas DataFrame.
+    """Iteration table printer and record.
+
+    Create once per solve and call ``log(iter=..., obj_val=..., ...)`` each
+    Newton step. Rows are printed as a table when ``verbose`` and kept in
+    ``rows``; ``to_dataframe()`` returns them as a pandas DataFrame.
     """
 
     _LINE_CHAR = "─"
