@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
@@ -98,3 +99,31 @@ def test_likelihood_attach_with_weights(data, term):
 def test_likelihood_size_before_attach() -> None:
     with pytest.raises(ValueError, match="attach"):
         _ = GaussianLikelihood("obs").size
+
+
+LINKS = {
+    BinomialLikelihood: lambda p: jnp.log(p / (1 - p)),
+    GaussianLikelihood: lambda y: y,
+    PoissonLikelihood: jnp.log,
+}
+
+
+@pytest.mark.parametrize("likelihood_class", list(LINKS))
+def test_likelihood_derivatives(likelihood_class, data, term) -> None:
+    term.attach(data)
+    likelihood = likelihood_class(obs="obs", weights="weights")
+    likelihood.attach(data, terms=[term])
+    x = jnp.asarray(np.random.default_rng(0).normal(size=term.size))
+    v = jnp.asarray(np.random.default_rng(1).normal(size=term.size))
+
+    assert jnp.allclose(likelihood.objective(x), likelihood.nll_terms(x).sum())
+    assert jnp.allclose(
+        likelihood.gradient(x), jax.grad(likelihood.objective)(x)
+    )
+    hess = jax.hessian(likelihood.objective)(x)
+    assert jnp.allclose(likelihood.hessian(x)(v), hess @ v)
+    assert jnp.allclose(likelihood.hessian_matrix(x), hess)
+
+    # the saturated fit has zero deviance
+    x_sat = LINKS[likelihood_class](likelihood.data["obs"])
+    assert jnp.allclose(likelihood.nll_terms(x_sat), 0.0, atol=1e-12)
