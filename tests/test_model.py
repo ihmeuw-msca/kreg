@@ -12,24 +12,24 @@ from kreg.term import Term
 @pytest.fixture
 def data() -> pd.DataFrame:
     return pd.DataFrame(
-        dict(
-            obs=[1.0, 1.0, 1.0],
-            weights=[1.0, 1.0, 1.0],
-            offset=[1.0, 1.0, 1.0],
-            age_mid=[1.0, 2.0, 3.0],
-        )
+        {
+            "obs": [1.0, 1.0, 1.0],
+            "weights": [1.0, 1.0, 1.0],
+            "offset": [1.0, 1.0, 1.0],
+            "age_mid": [1.0, 2.0, 3.0],
+        }
     )
 
 
 @pytest.fixture
 def data_with_outlier() -> pd.DataFrame:
     return pd.DataFrame(
-        dict(
-            obs=[1.0, 1.0, 1.0, 2.0],
-            weights=[1.0, 1.0, 1.0, 1.0],
-            offset=[1.0, 1.0, 1.0, 1.0],
-            age_mid=[1.0, 2.0, 3.0, 4.0],
-        )
+        {
+            "obs": [1.0, 1.0, 1.0, 2.0],
+            "weights": [1.0, 1.0, 1.0, 1.0],
+            "offset": [1.0, 1.0, 1.0, 1.0],
+            "age_mid": [1.0, 2.0, 3.0, 4.0],
+        }
     )
 
 
@@ -64,7 +64,7 @@ def test_model_fit_trimming(
     x, trim_weights = model.fit_trimming(
         data_with_outlier,
         inlier_pct=0.75,
-        solver_options=dict(use_direct=True),
+        solver_options={"use_direct": True},
     )
     assert np.allclose(x, 0.0)
     assert np.allclose(trim_weights, [1.0, 1.0, 1.0, 0.0])
@@ -76,7 +76,9 @@ def test_model_predict_from_kernel(
 ) -> None:
     model.fit(data, use_direct=True)
 
-    data_pred = pd.DataFrame(dict(age_mid=np.linspace(0.0, 3.0, 7), offset=1.0))
+    data_pred = pd.DataFrame(
+        {"age_mid": np.linspace(0.0, 3.0, 7), "offset": 1.0}
+    )
     y = model.predict(data_pred, from_kernel=True)
     assert np.allclose(y, 1.0)
 

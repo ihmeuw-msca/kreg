@@ -55,9 +55,8 @@ class Likelihood(ABC):
                     raise ValueError("Weights must not contain missing values.")
                 if not (data[self.weights] >= 0).all():
                     raise ValueError("Weights must be non-negative.")
-        if self.offset is not None:
-            if data[self.offset].isna().any():
-                raise ValueError("Offset must not contain missing values.")
+        if self.offset is not None and data[self.offset].isna().any():
+            raise ValueError("Offset must not contain missing values.")
         return data
 
     def attach(
@@ -187,11 +186,10 @@ class Likelihood(ABC):
 class BinomialLikelihood(Likelihood):
     def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
         data = super()._validate_data(data, train=train)
-        if train:
-            if not (
-                (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
-            ):
-                raise ValueError("Observations must be in [0, 1].")
+        if train and not (
+            (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
+        ):
+            raise ValueError("Observations must be in [0, 1].")
         return data
 
     @property
@@ -247,9 +245,8 @@ class GaussianLikelihood(Likelihood):
 class PoissonLikelihood(Likelihood):
     def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
         data = super()._validate_data(data, train=train)
-        if train:
-            if not (data[self.obs] >= 0).all():
-                raise ValueError("Observations must be non-negative.")
+        if train and not (data[self.obs] >= 0).all():
+            raise ValueError("Observations must be non-negative.")
         return data
 
     @property

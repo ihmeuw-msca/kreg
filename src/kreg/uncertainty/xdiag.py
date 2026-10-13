@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
@@ -14,7 +14,7 @@ def diag_prod(A: Array, B: Array) -> float:
 
 
 def xdiag(
-    A_apply: Callable, n: int, m: int, key=jax.random.PRNGKey(10)
+    A_apply: Callable, n: int, m: int, key: Array | None = None
 ) -> tuple[Array, list[Array]]:
     """x diag estimator from
     "XTrace: Making the Most of Every Sample in Stochastic Trace Estimation"
@@ -37,6 +37,8 @@ def xdiag(
         xdiag estimate, list of intermediate values
 
     """
+    if key is None:
+        key = jax.random.PRNGKey(10)
     m = int(jnp.floor(m / 2))
     rad = jax.random.rademacher(key, (n, m), "float64")
     Y = A_apply(rad)
