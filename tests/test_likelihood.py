@@ -29,12 +29,12 @@ def term() -> Term:
 @pytest.fixture
 def bad_data() -> pd.DataFrame:
     return pd.DataFrame(
-        dict(
-            obs=[-0.5, 0.5, 0.5, 0.5],
-            weights=[1.0, 1.0, 1.0, 1.0],
-            offset=[0.0, 0.0, 0.0, 0.0],
-            age_mid=[1.0, 2.0, 3.0, 4.0],
-        )
+        {
+            "obs": [-0.5, 0.5, 0.5, 0.5],
+            "weights": [1.0, 1.0, 1.0, 1.0],
+            "offset": [0.0, 0.0, 0.0, 0.0],
+            "age_mid": [1.0, 2.0, 3.0, 4.0],
+        }
     )
 
 

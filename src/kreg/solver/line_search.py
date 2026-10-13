@@ -1,5 +1,5 @@
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 
 from kreg.typing import Callable, JAXArray
 
@@ -56,13 +56,13 @@ def build_armijo_linesearch(f, decrease_ratio=0.5, slope=0.05, max_iter=25):
         init_state = (0, t0, dec0, pred_dec0)
 
         def cond_fun(state):
-            i, t, dec, pred_dec = state
+            i, _t, dec, pred_dec = state
             # Continue while we haven't satisfied the Armijo condition and haven't exceeded max_iter iterations.
             not_enough_decrease = dec >= slope * pred_dec
             return jnp.logical_and(i < max_iter, not_enough_decrease)
 
         def body_fun(state):
-            i, t, dec, pred_dec = state
+            i, t, _dec, _pred_dec = state
             t_new = decrease_ratio * t
             candidate_new = x - t_new * d
             dec_new = f(candidate_new) - f_curr
@@ -70,7 +70,7 @@ def build_armijo_linesearch(f, decrease_ratio=0.5, slope=0.05, max_iter=25):
             return (i + 1, t_new, dec_new, pred_dec_new)
 
         # Run the while loop
-        i_final, t_final, dec_final, pred_dec_final = jax.lax.while_loop(
+        _i_final, t_final, dec_final, pred_dec_final = jax.lax.while_loop(
             cond_fun, body_fun, init_state
         )
         armijo_rat_final = dec_final / pred_dec_final

@@ -50,7 +50,7 @@ class Dimension:
         self, data: DataFrame, rule: Literal["midpoint"] = "midpoint"
     ) -> None:
         if hasattr(self, "_span") and hasattr(self, "_grid"):
-            return None
+            return
 
         data = (
             data[self.columns]

@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 import jax.numpy as jnp
 from matfree.decomp import tridiag_sym

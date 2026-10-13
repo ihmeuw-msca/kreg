@@ -72,7 +72,7 @@ class NewtonCG:
                 precon = self.precon_builder(x)
 
             cg_maxiter += cg_maxiter_increment
-            p, info = jax.block_until_ready(
+            p, _info = jax.block_until_ready(
                 cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16)
             )
 
