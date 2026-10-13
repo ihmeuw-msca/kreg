@@ -13,9 +13,10 @@ class KernelComponent:
 
     Parameters
     ----------
-    name
-        Column name(s) in the dataframe corresponding to the coordinates of the
-        kernel.
+    dim_configs
+        Dimension configurations, one per coordinate of the kernel. Each is a
+        column name or a dict of ``Dimension`` keyword arguments. A single
+        configuration may be passed without wrapping it in a list.
     kfunc
         Kernel function for computing the kernel matrix for the component.
 
@@ -23,9 +24,11 @@ class KernelComponent:
 
     def __init__(
         self,
-        dim_configs: list[DimensionConfig],
+        dim_configs: DimensionConfig | list[DimensionConfig],
         kfunc: KernelFunction,
     ) -> None:
+        if isinstance(dim_configs, str | dict):
+            dim_configs = [dim_configs]
         self.dimensions: list[Dimension]
         dimensions = []
         for dim_config in dim_configs:
