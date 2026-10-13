@@ -96,3 +96,14 @@ def test_model_fit_quiet(
 ) -> None:
     model.fit(data, use_direct=use_direct, verbose=False)
     assert capsys.readouterr().out == ""
+
+
+def test_model_fit_lam_unknown_label(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    with pytest.raises(ValueError, match="Unknown term labels"):
+        model.fit(data, lam={"intercept": 1.0}, use_direct=True, verbose=False)
+    model.fit(
+        data, lam={"intercept/age_mid": 2.0}, use_direct=True, verbose=False
+    )
+    assert model.terms[0].lam == 2.0

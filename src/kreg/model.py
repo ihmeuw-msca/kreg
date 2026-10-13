@@ -162,7 +162,9 @@ class KernelRegModel:
         nystroem_rank
             Rank for Nyström approximation, by default 25
         lam
-            Override regularization parameter, by default None
+            Override regularization parameter, by default None. A scalar
+            applies to every term; a dict is keyed by ``Term.label``
+            (``name`` or ``name/kernel_label``) and raises on unknown keys.
         detach
             Whether to detach data after fitting, by default True
         use_direct
@@ -181,6 +183,13 @@ class KernelRegModel:
         if lam is not None:
             if not isinstance(lam, dict):
                 lam = {v.label: lam for v in self.terms}
+            labels = [v.label for v in self.terms]
+            unknown = set(lam) - set(labels)
+            if unknown:
+                raise ValueError(
+                    f"Unknown term labels in lam: {sorted(unknown)}. "
+                    f"Available labels: {labels}."
+                )
             for v in self.terms:
                 if v.label in lam:
                     v.lam = lam[v.label]
