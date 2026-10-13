@@ -79,3 +79,41 @@ def test_model_predict_from_kernel(
     data_pred = pd.DataFrame(dict(age_mid=np.linspace(0.0, 3.0, 7), offset=1.0))
     y = model.predict(data_pred, from_kernel=True)
     assert np.allclose(y, 1.0)
+
+
+def test_model_refit_with_new_lam(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    model.fit(data, lam=1.0, use_direct=True, detach=False)
+    hess_old = model.hessian_prior_matrix()
+    model.fit(data, lam=100.0, use_direct=True, detach=False)
+    assert np.allclose(model.hessian_prior_matrix(), 100.0 * hess_old)
+
+
+@pytest.mark.parametrize("use_direct", [True, False])
+def test_model_fit_quiet(
+    model: KernelRegModel, data: pd.DataFrame, use_direct: bool, capsys
+) -> None:
+    model.fit(data, use_direct=use_direct, verbose=False)
+    assert capsys.readouterr().out == ""
+
+
+def test_model_fit_lam_unknown_label(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    with pytest.raises(ValueError, match="Unknown term labels"):
+        model.fit(data, lam={"intercept": 1.0}, use_direct=True, verbose=False)
+    model.fit(
+        data, lam={"intercept/age_mid": 2.0}, use_direct=True, verbose=False
+    )
+    assert model.terms[0].lam == 2.0
+
+
+def test_model_fit_trimming_keeps_solver_options(
+    model: KernelRegModel, data_with_outlier: pd.DataFrame
+) -> None:
+    solver_options = {"use_direct": True, "verbose": False}
+    model.fit_trimming(
+        data_with_outlier, inlier_pct=0.75, solver_options=solver_options
+    )
+    assert solver_options == {"use_direct": True, "verbose": False}

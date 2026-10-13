@@ -1,5 +1,3 @@
-import functools
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -55,7 +53,6 @@ class KernelRegModel:
             start += v.size
         return jnp.hstack(val)
 
-    @functools.cache
     def hessian_prior_matrix(self) -> JAXArray:
         mats = [v.hessian_matrix() for v in self.terms]
         return block_diag(*mats)
@@ -165,7 +162,9 @@ class KernelRegModel:
         nystroem_rank
             Rank for Nyström approximation, by default 25
         lam
-            Override regularization parameter, by default None
+            Override regularization parameter, by default None. A scalar
+            applies to every term; a dict is keyed by ``Term.label``
+            (``name`` or ``name/kernel_label``) and raises on unknown keys.
         detach
             Whether to detach data after fitting, by default True
         use_direct
@@ -184,6 +183,13 @@ class KernelRegModel:
         if lam is not None:
             if not isinstance(lam, dict):
                 lam = {v.label: lam for v in self.terms}
+            labels = [v.label for v in self.terms]
+            unknown = set(lam) - set(labels)
+            if unknown:
+                raise ValueError(
+                    f"Unknown term labels in lam: {sorted(unknown)}. "
+                    f"Available labels: {labels}."
+                )
             for v in self.terms:
                 if v.label in lam:
                     v.lam = lam[v.label]
@@ -234,6 +240,7 @@ class KernelRegModel:
                 cg_maxiter_increment=cg_maxiter_increment,
                 precon_build_freq=10,
                 grad_decrease=grad_decrease,
+                verbose=verbose,
             )
 
         if detach:
@@ -279,8 +286,7 @@ class KernelRegModel:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
             raise ValueError("inlier_pct has to be between 0 and 1.")
-        if solver_options is None:
-            solver_options = {}
+        solver_options = dict(solver_options or {})
         solver_options["detach"] = False
 
         y = self.fit(
