@@ -231,6 +231,7 @@ class KernelRegModel:
                 cg_maxiter_increment=cg_maxiter_increment,
                 precon_build_freq=10,
                 grad_decrease=grad_decrease,
+                verbose=verbose,
             )
 
         if detach:

@@ -88,3 +88,11 @@ def test_model_refit_with_new_lam(
     hess_old = model.hessian_prior_matrix()
     model.fit(data, lam=100.0, use_direct=True, detach=False)
     assert np.allclose(model.hessian_prior_matrix(), 100.0 * hess_old)
+
+
+@pytest.mark.parametrize("use_direct", [True, False])
+def test_model_fit_quiet(
+    model: KernelRegModel, data: pd.DataFrame, use_direct: bool, capsys
+) -> None:
+    model.fit(data, use_direct=use_direct, verbose=False)
+    assert capsys.readouterr().out == ""
