@@ -286,8 +286,7 @@ class KernelRegModel:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
             raise ValueError("inlier_pct has to be between 0 and 1.")
-        if solver_options is None:
-            solver_options = {}
+        solver_options = dict(solver_options or {})
         solver_options["detach"] = False
 
         y = self.fit(

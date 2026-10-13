@@ -107,3 +107,13 @@ def test_model_fit_lam_unknown_label(
         data, lam={"intercept/age_mid": 2.0}, use_direct=True, verbose=False
     )
     assert model.terms[0].lam == 2.0
+
+
+def test_model_fit_trimming_keeps_solver_options(
+    model: KernelRegModel, data_with_outlier: pd.DataFrame
+) -> None:
+    solver_options = {"use_direct": True, "verbose": False}
+    model.fit_trimming(
+        data_with_outlier, inlier_pct=0.75, solver_options=solver_options
+    )
+    assert solver_options == {"use_direct": True, "verbose": False}
