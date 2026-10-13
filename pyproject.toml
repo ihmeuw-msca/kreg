@@ -20,12 +20,11 @@ classifiers = [
     "Natural Language :: English",
 ]
 dependencies = [
-    "jax",
-    "tqdm",
-    "matplotlib",
-    "matfree",
-    "pandas",
-    "msca",
+    "jax>=0.4.35",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "matfree>=0.1.0",
+    "msca>=0.2.0",
 ]
 
 [project.optional-dependencies]
