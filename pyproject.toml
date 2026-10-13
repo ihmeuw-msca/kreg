@@ -7,7 +7,7 @@ name = "kreg"
 version = "0.4.0"
 description = "Python package template"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "BSD-2-Clause" }
 authors = [
     { name = "IHME Math Sciences", email = "ihme.math.sciences@gmail.com" },
@@ -19,7 +19,6 @@ classifiers = [
 ]
 dependencies = [
     "jax",
-    "pykronecker[jax]",
     "tqdm",
     "matplotlib",
     "matfree",
