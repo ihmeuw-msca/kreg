@@ -79,3 +79,12 @@ def test_model_predict_from_kernel(
     data_pred = pd.DataFrame(dict(age_mid=np.linspace(0.0, 3.0, 7), offset=1.0))
     y = model.predict(data_pred, from_kernel=True)
     assert np.allclose(y, 1.0)
+
+
+def test_model_refit_with_new_lam(
+    model: KernelRegModel, data: pd.DataFrame
+) -> None:
+    model.fit(data, lam=1.0, use_direct=True, detach=False)
+    hess_old = model.hessian_prior_matrix()
+    model.fit(data, lam=100.0, use_direct=True, detach=False)
+    assert np.allclose(model.hessian_prior_matrix(), 100.0 * hess_old)

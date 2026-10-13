@@ -102,7 +102,6 @@ class Term:
         return mat
 
     @property
-    @functools.cache
     def precon_op(self) -> Callable:
         if self.kernel is None:
 

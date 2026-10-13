@@ -1,5 +1,3 @@
-import functools
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -55,7 +53,6 @@ class KernelRegModel:
             start += v.size
         return jnp.hstack(val)
 
-    @functools.cache
     def hessian_prior_matrix(self) -> JAXArray:
         mats = [v.hessian_matrix() for v in self.terms]
         return block_diag(*mats)
