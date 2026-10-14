@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
   dimensions, and the default Newton-CG fit path (#39).
 - `README.md` with install instructions, the object model and a runnable
   example; class and constructor docstrings throughout the package.
+- Tests for both Newton solvers on a quadratic: convergence, result fields,
+  the non-convergence warning and the CG iteration budget.
 
 ### Changed
 
@@ -73,6 +75,15 @@ All notable changes to this project are documented here. The format follows
 - `fit` docstring: the Nyström rank default is 0, not 25, and
   `grad_decrease` is unused; `fit_trimming` documents the hard-threshold
   return when trimming does not converge.
+- `NewtonCG` added `cg_maxiter_increment` before the first CG solve, so the
+  first Newton step used a larger budget than `cg_maxiter`.
+- `Likelihood.hessian_matrix` built an observations-by-observations
+  diagonal matrix (quadratic memory in the number of rows) before the
+  product; it now scales the rows of the sparse design matrix.
+- `BinomialLikelihood` used a hand-rolled sigmoid in `inv_link` and
+  `hessian_diag` and the JAX one in `gradient`; the hand-rolled version has
+  a NaN derivative for large negative inputs. All three use
+  `jax.scipy.special.expit`.
 
 ## [0.4.0] - 2025-11-24
 
