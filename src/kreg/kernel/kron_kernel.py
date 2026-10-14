@@ -1,29 +1,39 @@
 import itertools
+import math
 
 import jax.numpy as jnp
 import numpy as np
-from pykronecker import KroneckerProduct
 
 from kreg.kernel.component import KernelComponent
 from kreg.kernel.dimension import Dimension
+from kreg.kernel.kron_op import KroneckerOperator
 from kreg.typing import DataFrame, JAXArray
 
 
 class KroneckerKernel:
-    """Kronecker product of all kernel functions to form a complete kernel
-    linear mapping.
+    """Kronecker product of the kernel matrices of several components.
+
+    The kernel matrix is ``K = K_1 ⊗ K_2 ⊗ ... ⊗ K_m`` where ``K_i`` is the
+    kernel matrix of ``kernel_components[i]``. The product is never formed:
+    after ``attach`` the operators ``op_k`` (``K``), ``op_p`` (``K^{-1}``),
+    ``op_root_k`` (``K^{1/2}``) and ``op_root_p`` (``K^{-1/2}``) are
+    ``KroneckerOperator`` instances built from per-component
+    eigendecompositions. Rows of ``K`` are ordered row-major over the
+    component spans, first component slowest, which is also the column order
+    of the encoding matrix produced by ``Term.encode``.
 
     Parameters
     ----------
-    kernels
-        List of kernel functions.
-    grids
-        List of value grids, unique values for each dimension.
+    kernel_components
+        Components, outermost first. Each supplies the dimensions it covers
+        and a kernel function on them.
     nugget
-        Regularization for the kernel matrix.
+        Value added to the diagonal of every component kernel matrix so that
+        it is positive definite.
     normalize
-        If True, will normalize the kernel matrix so that the diagonal elements
-        are all ones. Default is False.
+        If True, divide every component kernel matrix by the square roots of
+        its column maxima. For stationary kernels this puts ones on the
+        diagonal.
 
     """
 
@@ -53,11 +63,11 @@ class KroneckerKernel:
         self.normalize = normalize
 
         self.kmats: list[JAXArray]
-        self.op_k: KroneckerProduct
+        self.op_k: KroneckerOperator
         self.eigdecomps: list[tuple[JAXArray, JAXArray]]
-        self.op_p: KroneckerProduct
-        self.op_root_k: KroneckerProduct
-        self.op_root_p: KroneckerProduct
+        self.op_p: KroneckerOperator
+        self.op_root_k: KroneckerOperator
+        self.op_root_p: KroneckerOperator
         self.status = "detached"
 
     @property
@@ -71,14 +81,16 @@ class KroneckerKernel:
                 [dim.columns for dim in self.dimensions]
             )
         )
+        # interval dimensions are labelled by their grid cells, not midpoints
+        rows = [
+            dim.span
+            if dim.interval is None
+            else np.column_stack([dim.grid[:-1], dim.grid[1:]])
+            for dim in self.dimensions
+        ]
         span = DataFrame(
             data=np.array(
-                [
-                    np.hstack(list(row))
-                    for row in itertools.product(
-                        *[dim.span for dim in self.dimensions]
-                    )
-                ]
+                [np.hstack(list(row)) for row in itertools.product(*rows)]
             ),
             columns=columns,
         )
@@ -89,15 +101,15 @@ class KroneckerKernel:
             component.build_kmat(self.nugget, self.normalize)
             for component in self.kernel_components
         ]
-        self.op_k = KroneckerProduct(self.kmats)
+        self.op_k = KroneckerOperator(self.kmats)
         self.eigdecomps = list(map(jnp.linalg.eigh, self.kmats))
-        self.op_p = KroneckerProduct(
+        self.op_p = KroneckerOperator(
             [(mat / vec).dot(mat.T) for vec, mat in self.eigdecomps]
         )
-        self.op_root_k = KroneckerProduct(
+        self.op_root_k = KroneckerOperator(
             [(mat * jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
-        self.op_root_p = KroneckerProduct(
+        self.op_root_p = KroneckerOperator(
             [(mat / jnp.sqrt(vec)).dot(mat.T) for vec, mat in self.eigdecomps]
         )
 
@@ -125,4 +137,4 @@ class KroneckerKernel:
         return self.dot(x)
 
     def __len__(self) -> int:
-        return np.prod(list(len(dim.span) for dim in self.dimensions))
+        return math.prod(len(dim.span) for dim in self.dimensions)

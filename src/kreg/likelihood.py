@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 from jax.experimental.sparse import BCOO
-from jax.scipy.special import xlogy
+from jax.scipy.special import expit, xlogy
 
 from kreg.term import Term
 from kreg.typing import Callable, DataFrame, JAXArray, Series
@@ -21,6 +21,25 @@ class LikelihoodData(TypedDict):
 
 
 class Likelihood(ABC):
+    """Negative log-likelihood of the observations given the parameters.
+
+    The linear predictor is ``mat @ x + offset`` where ``mat`` is the sparse
+    encoding matrix built from the terms (see ``encode``) and ``x`` the
+    concatenated term coefficients. Subclasses define the link and the
+    per-observation negative log-likelihood ``nll_terms``; all are weighted
+    by ``weights`` times the trimming weights.
+
+    Parameters
+    ----------
+    obs
+        Observation column.
+    weights
+        Weight column; ones if ``None``.
+    offset
+        Offset column on the linear-predictor scale; zeros if ``None``.
+
+    """
+
     def __init__(
         self, obs: str, weights: str | None = None, offset: str | None = None
     ) -> None:
@@ -31,9 +50,9 @@ class Likelihood(ABC):
         self.data: LikelihoodData
 
     @property
-    def size(self) -> int | None:
-        if not self.data:
-            raise ValueError("No data attached.")
+    def size(self) -> int:
+        if not hasattr(self, "data"):
+            raise ValueError("No data attached. Call `attach` first.")
         return len(self.data["obs"])
 
     @property
@@ -55,9 +74,8 @@ class Likelihood(ABC):
                     raise ValueError("Weights must not contain missing values.")
                 if not (data[self.weights] >= 0).all():
                     raise ValueError("Weights must be non-negative.")
-        if self.offset is not None:
-            if data[self.offset].isna().any():
-                raise ValueError("Offset must not contain missing values.")
+        if self.offset is not None and data[self.offset].isna().any():
+            raise ValueError("Offset must not contain missing values.")
         return data
 
     def attach(
@@ -67,6 +85,13 @@ class Likelihood(ABC):
         train: bool = True,
         density: dict[str, Series] | None = None,
     ) -> None:
+        """Build the encoding matrix and store the data arrays.
+
+        With ``train=False`` (prediction) only the offset and the matrix are
+        stored and the observation and weight columns are neither read nor
+        validated. ``density`` maps a term label to the density passed to
+        that term's ``encode``.
+        """
         data = self._validate_data(data, train=train)
         size = len(data)
         self.data = {
@@ -76,13 +101,14 @@ class Likelihood(ABC):
             "mat": self.encode(data, terms, density),
         }
         if train:
-            self.data["obs"] = jnp.asarray(data[self.obs])
-            self.data["weights"] = (
+            weights = (
                 jnp.ones(size)
                 if self.weights is None
                 else jnp.asarray(data[self.weights])
             )
-            self.data["orig_weights"] = jnp.asarray(data[self.weights])
+            self.data["obs"] = jnp.asarray(data[self.obs])
+            self.data["weights"] = weights
+            self.data["orig_weights"] = weights
             self.data["trim_weights"] = jnp.ones(size)
 
         @jax.jit
@@ -111,6 +137,11 @@ class Likelihood(ABC):
         terms: list[Term],
         density: dict[str, Series] | None = None,
     ) -> BCOO:
+        """Stack the encodings of all terms into one sparse design matrix.
+
+        The result has one row per row of ``data`` and one column per
+        coefficient, term blocks side by side in the order of ``terms``.
+        """
         variable_sizes = pd.DataFrame(
             {
                 "variable_index": range(len(terms)),
@@ -179,18 +210,17 @@ class Likelihood(ABC):
         return op_hess
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
-        diag = jnp.diag(self.hessian_diag(x))
-        return self.data["mat"].T @ (diag @ self.data["mat"])
+        mat = self.data["mat"]
+        return mat.T @ (mat * self.hessian_diag(x)[:, None]).todense()
 
 
 class BinomialLikelihood(Likelihood):
     def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
         data = super()._validate_data(data, train=train)
-        if train:
-            if not (
-                (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
-            ):
-                raise ValueError("Observations must be in [0, 1].")
+        if train and not (
+            (data[self.obs] >= 0).all() and (data[self.obs] <= 1).all()
+        ):
+            raise ValueError("Observations must be in [0, 1].")
         return data
 
     @property
@@ -211,7 +241,7 @@ class BinomialLikelihood(Likelihood):
 
     def gradient(self, x: JAXArray) -> JAXArray:
         z = self.get_lin_param(x)
-        sig_z = jax.scipy.special.expit(z)
+        sig_z = expit(z)
         fz = self.data["weights"] * (sig_z - self.data["obs"])
         return self.mat_adj_apply(fz)
 
@@ -246,9 +276,8 @@ class GaussianLikelihood(Likelihood):
 class PoissonLikelihood(Likelihood):
     def _validate_data(self, data: DataFrame, train: bool = True) -> DataFrame:
         data = super()._validate_data(data, train=train)
-        if train:
-            if not (data[self.obs] >= 0).all():
-                raise ValueError("Observations must be non-negative.")
+        if train and not (data[self.obs] >= 0).all():
+            raise ValueError("Observations must be non-negative.")
         return data
 
     @property
@@ -274,11 +303,6 @@ class PoissonLikelihood(Likelihood):
         y = self.get_lin_param(x)
         diag = self.data["weights"] * jnp.exp(y)
         return diag
-
-
-@jax.jit
-def expit(x: JAXArray) -> JAXArray:
-    return 1 / (1 + jnp.exp(-x))
 
 
 @jax.jit

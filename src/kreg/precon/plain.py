@@ -6,6 +6,13 @@ from kreg.typing import Callable, JAXArray
 
 
 class PlainPreconBuilder(PreconBuilder):
+    """Block-diagonal preconditioner applying each term's kernel ``K``.
+
+    Since the prior Hessian of a kernel term is ``lam * K^{-1}``, applying
+    ``K`` to the matching block approximately inverts it; plain terms use
+    the identity. The preconditioner does not depend on ``x``.
+    """
+
     def __init__(self, terms: list[Term]) -> None:
         self.terms = terms
 

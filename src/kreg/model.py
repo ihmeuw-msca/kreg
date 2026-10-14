@@ -1,5 +1,3 @@
-import functools
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,17 +15,23 @@ jax.config.update("jax_enable_x64", True)
 
 
 class KernelRegModel:
+    """Generalised linear model whose linear predictor is a sum of terms.
+
+    The parameter vector ``x`` is the concatenation of the coefficient blocks
+    of ``terms``, in order. The objective is the negative log-likelihood plus
+    the prior of every term, ``0.5 * lam * x_t' K_t^{-1} x_t`` for a kernel
+    term and ``0.5 * lam_ridge * x_t' x_t`` for a ridge penalty.
+
+    Parameters
+    ----------
+    terms
+        Regression terms. Their sizes are only known after data is attached.
+    likelihood
+        Likelihood that names the observation, weight and offset columns.
+
+    """
+
     def __init__(self, terms: list[Term], likelihood: Likelihood) -> None:
-        """Kernel regression model
-
-        Parameters
-        ----------
-        terms
-            The regression terms for the kernel regression
-        likelihood
-            The likelihood model to use
-
-        """
         self.terms = terms
         self.likelihood = likelihood
 
@@ -55,7 +59,6 @@ class KernelRegModel:
             start += v.size
         return jnp.hstack(val)
 
-    @functools.cache
     def hessian_prior_matrix(self) -> JAXArray:
         mats = [v.hessian_matrix() for v in self.terms]
         return block_diag(*mats)
@@ -163,27 +166,41 @@ class KernelRegModel:
         cg_maxiter_increment
             CG iteration increment per Newton step, by default 25
         nystroem_rank
-            Rank for Nyström approximation, by default 25
+            Rank of a Nyström preconditioner, by default 0. Only 0 is
+            supported; any other value raises ``ValueError``.
         lam
-            Override regularization parameter, by default None
+            Override regularization parameter, by default None. A scalar
+            applies to every term; a dict is keyed by ``Term.label``
+            (``name`` or ``name/kernel_label``) and raises on unknown keys.
         detach
-            Whether to detach data after fitting, by default True
+            Whether to detach data after fitting, by default True. The fitted
+            ``x`` is kept either way and is the starting point of the next
+            ``fit`` when ``x0`` is not given.
         use_direct
-            Whether to use direct solver instead of CG, by default False
+            Whether to use direct solver instead of CG, by default False. The
+            direct solver forms the dense Hessian of size ``sum(term sizes)``.
         grad_decrease
-            Required gradient decrease factor, by default 0.5
+            Accepted for backward compatibility; not used by either solver.
         verbose
             If True print iteration information.
 
         Returns
         -------
         tuple[JAXArray, OptimizationResult]
-            The fitted parameter vector and solver information
+            The fitted parameter vector and solver information. The result's
+            ``log.to_dataframe()`` holds one row per Newton iteration.
 
         """
         if lam is not None:
             if not isinstance(lam, dict):
                 lam = {v.label: lam for v in self.terms}
+            labels = [v.label for v in self.terms]
+            unknown = set(lam) - set(labels)
+            if unknown:
+                raise ValueError(
+                    f"Unknown term labels in lam: {sorted(unknown)}. "
+                    f"Available labels: {labels}."
+                )
             for v in self.terms:
                 if v.label in lam:
                     v.lam = lam[v.label]
@@ -234,6 +251,7 @@ class KernelRegModel:
                 cg_maxiter_increment=cg_maxiter_increment,
                 precon_build_freq=10,
                 grad_decrease=grad_decrease,
+                verbose=verbose,
             )
 
         if detach:
@@ -273,14 +291,18 @@ class KernelRegModel:
         Returns
         -------
         tuple[JAXArray, JAXArray]
-            The fitted parameter vector and trimming weights
+            The fitted parameter vector and the trimming weights, one per row
+            of ``data``. If the weights have not all reached 0 or 1 after
+            ``trim_steps`` steps, the ``inlier_pct`` rows with the largest
+            weights are set to 1 and the rest to 0 without a further refit,
+            so the returned parameters correspond to the last fractional
+            weights rather than to the returned binary ones.
         """
         if trim_steps < 2:
             raise ValueError("At least two trimming steps.")
         if inlier_pct < 0.0 or inlier_pct > 1.0:
             raise ValueError("inlier_pct has to be between 0 and 1.")
-        if solver_options is None:
-            solver_options = {}
+        solver_options = dict(solver_options or {})
         solver_options["detach"] = False
 
         y = self.fit(
@@ -345,7 +367,12 @@ class KernelRegModel:
         NDArray
             The predictions
         """
-        x = self.x if x is None else x
+        if x is None:
+            if not hasattr(self, "x"):
+                raise ValueError(
+                    "Model has not been fitted. Call `fit` first or pass `x`."
+                )
+            x = self.x
         if from_kernel:
             raise ValueError(
                 "from_kernel option is not supported until further development"
