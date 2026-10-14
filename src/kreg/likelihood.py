@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 from jax.experimental.sparse import BCOO
-from jax.scipy.special import xlogy
+from jax.scipy.special import expit, xlogy
 
 from kreg.term import Term
 from kreg.typing import Callable, DataFrame, JAXArray, Series
@@ -210,8 +210,8 @@ class Likelihood(ABC):
         return op_hess
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
-        diag = jnp.diag(self.hessian_diag(x))
-        return self.data["mat"].T @ (diag @ self.data["mat"])
+        mat = self.data["mat"]
+        return mat.T @ (mat * self.hessian_diag(x)[:, None]).todense()
 
 
 class BinomialLikelihood(Likelihood):
@@ -241,7 +241,7 @@ class BinomialLikelihood(Likelihood):
 
     def gradient(self, x: JAXArray) -> JAXArray:
         z = self.get_lin_param(x)
-        sig_z = jax.scipy.special.expit(z)
+        sig_z = expit(z)
         fz = self.data["weights"] * (sig_z - self.data["obs"])
         return self.mat_adj_apply(fz)
 
@@ -303,11 +303,6 @@ class PoissonLikelihood(Likelihood):
         y = self.get_lin_param(x)
         diag = self.data["weights"] * jnp.exp(y)
         return diag
-
-
-@jax.jit
-def expit(x: JAXArray) -> JAXArray:
-    return 1 / (1 + jnp.exp(-x))
 
 
 @jax.jit

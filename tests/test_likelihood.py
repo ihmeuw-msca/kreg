@@ -122,8 +122,17 @@ def test_likelihood_derivatives(likelihood_class, data, term) -> None:
     )
     hess = jax.hessian(likelihood.objective)(x)
     assert jnp.allclose(likelihood.hessian(x)(v), hess @ v)
-    assert jnp.allclose(likelihood.hessian_matrix(x), hess)
+    hess_mat = likelihood.hessian_matrix(x)
+    assert isinstance(hess_mat, jax.Array)
+    assert jnp.allclose(hess_mat, hess)
 
     # the saturated fit has zero deviance
     x_sat = LINKS[likelihood_class](likelihood.data["obs"])
     assert jnp.allclose(likelihood.nll_terms(x_sat), 0.0, atol=1e-12)
+
+
+def test_binomial_inv_link_stable_in_tails() -> None:
+    inv_link = BinomialLikelihood(obs="obs").inv_link
+    z = jnp.array([-800.0, 800.0])
+    assert jnp.allclose(inv_link(z), jnp.array([0.0, 1.0]))
+    assert jnp.isfinite(jax.vmap(jax.grad(inv_link))(z)).all()
