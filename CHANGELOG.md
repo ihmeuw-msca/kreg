@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
 ### Added
 
 - `kreg.kernel.kron_op.KroneckerOperator`, an in-house lazy Kronecker product
