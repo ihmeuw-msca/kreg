@@ -210,8 +210,8 @@ class Likelihood(ABC):
         return op_hess
 
     def hessian_matrix(self, x: JAXArray) -> JAXArray:
-        diag = jnp.diag(self.hessian_diag(x))
-        return self.data["mat"].T @ (diag @ self.data["mat"])
+        mat = self.data["mat"]
+        return mat.T @ (mat * self.hessian_diag(x)[:, None]).todense()
 
 
 class BinomialLikelihood(Likelihood):

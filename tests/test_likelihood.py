@@ -122,7 +122,9 @@ def test_likelihood_derivatives(likelihood_class, data, term) -> None:
     )
     hess = jax.hessian(likelihood.objective)(x)
     assert jnp.allclose(likelihood.hessian(x)(v), hess @ v)
-    assert jnp.allclose(likelihood.hessian_matrix(x), hess)
+    hess_mat = likelihood.hessian_matrix(x)
+    assert isinstance(hess_mat, jax.Array)
+    assert jnp.allclose(hess_mat, hess)
 
     # the saturated fit has zero deviance
     x_sat = LINKS[likelihood_class](likelihood.data["obs"])
