@@ -101,10 +101,10 @@ class NewtonCG:
             if self.precon_builder is not None and i % precon_build_freq == 0:
                 precon = self.precon_builder(x)
 
-            cg_maxiter += cg_maxiter_increment
             p, _info = jax.block_until_ready(
                 cg(hess, g, M=precon, maxiter=cg_maxiter, tol=1e-16)
             )
+            cg_maxiter += cg_maxiter_increment
 
             x, step, armijo_rat_final = jax.block_until_ready(
                 linesearch(x, val, p, g, t0=1.0)
