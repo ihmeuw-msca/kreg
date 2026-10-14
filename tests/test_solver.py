@@ -1,8 +1,9 @@
 import jax
 import jax.numpy as jnp
+import pytest
 
 from kreg.solver import newton
-from kreg.solver.newton import NewtonCG
+from kreg.solver.newton import NewtonCG, NewtonDirect
 
 jax.config.update("jax_enable_x64", True)
 
@@ -42,3 +43,35 @@ def test_newton_cg_budget_starts_at_cg_maxiter(monkeypatch):
     )
     assert budgets[0] == 7
     assert budgets == [7, 10, 13][: len(budgets)]
+
+
+def hessian_mat(x):
+    return A
+
+
+def make_solver(solver_class):
+    if solver_class is NewtonCG:
+        return NewtonCG(objective, gradient, hessian)
+    return NewtonDirect(objective, gradient, hessian_mat)
+
+
+@pytest.mark.parametrize("solver_class", [NewtonCG, NewtonDirect])
+def test_newton_solves_quadratic(solver_class):
+    x, result = make_solver(solver_class).solve(
+        jnp.zeros(2), gtol=1e-10, verbose=False
+    )
+    assert jnp.allclose(x, jnp.linalg.solve(A, b))
+    assert result.converged
+    assert result.convergence_criterion == "grad_norm"
+    log = result.log.to_dataframe()
+    assert {"iter", "obj_val", "gnorm2", "step"} <= set(log.columns)
+    assert log["iter"].tolist() == list(range(len(log)))
+
+
+@pytest.mark.parametrize("solver_class", [NewtonCG, NewtonDirect])
+def test_newton_warns_when_not_converged(solver_class):
+    with pytest.warns(UserWarning, match="Convergence wasn't achieved"):
+        _, result = make_solver(solver_class).solve(
+            jnp.zeros(2), max_iter=0, verbose=False
+        )
+    assert not result.converged
